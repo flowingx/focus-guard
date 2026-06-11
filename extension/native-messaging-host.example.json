@@ -1,0 +1,7 @@
+{
+  "name": "com.focus_guard.desktop",
+  "description": "Focus Guard desktop assistant native messaging host",
+  "path": "C:\\\\Program Files\\\\Focus Guard\\\\focus-guard-native-host.exe",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://<extension-id>/"]
+}

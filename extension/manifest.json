@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "Focus Guard",
+  "description": "Soft-block distracting sites until you state a time-boxed study intent.",
+  "version": "0.1.0",
+  "permissions": ["storage", "tabs", "webNavigation", "nativeMessaging", "alarms", "notifications"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["unknown-toast.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "icons": {
+    "128": "notification-icon.png"
+  },
+  "action": {
+    "default_title": "Focus Guard"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "interstitial.html",
+        "interstitial.js",
+        "interstitial.css",
+        "expired.html",
+        "expired.js",
+        "unknown.html",
+        "unknown.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

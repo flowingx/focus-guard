@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Focus Guard</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">FOCUS GUARD</p>
+        <h1>专注守门员</h1>
+      </div>
+      <div class="status">
+        <span id="focus-state">专注模式开启</span>
+        <button id="toggle-focus" type="button">切换</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <div class="section-head">
+          <h2>高风险网站</h2>
+          <button id="add-domain" type="button">添加</button>
+        </div>
+        <textarea id="high-risk-domains" rows="12" spellcheck="false"></textarea>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <h2>监控应用</h2>
+          <button id="add-app" type="button">添加</button>
+        </div>
+        <textarea id="monitored-apps" rows="12" spellcheck="false"></textarea>
+      </section>
+
+      <section class="panel wide">
+        <div class="section-head">
+          <h2>白名单</h2>
+          <button id="add-allowlist-rule" type="button">添加</button>
+        </div>
+        <textarea id="allowlist-rules" rows="8" spellcheck="false"></textarea>
+      </section>
+
+      <section class="panel wide">
+        <div class="section-head">
+          <div>
+            <h2>本地 AI 管控</h2>
+            <p class="hint">默认关闭；只连接本机 endpoint，失联时不影响现有规则。</p>
+          </div>
+          <label class="switch-row">
+            <input id="local-ai-enabled" type="checkbox" />
+            <span>启用</span>
+          </label>
+        </div>
+
+        <div class="settings-grid">
+          <label>
+            <span>Endpoint</span>
+            <input id="local-ai-endpoint" type="url" spellcheck="false" />
+          </label>
+          <label>
+            <span>模型名</span>
+            <input id="local-ai-model" type="text" spellcheck="false" />
+          </label>
+          <label>
+            <span>采样间隔（秒）</span>
+            <input id="local-ai-sample-interval" type="number" min="5" step="5" />
+          </label>
+          <label>
+            <span>置信度阈值</span>
+            <input id="local-ai-confidence-threshold" type="number" min="0" max="1" step="0.05" />
+          </label>
+        </div>
+
+        <div class="ai-test-row">
+          <button id="test-local-ai" type="button">测试一次</button>
+          <span id="local-ai-status" class="pill muted-pill">未连接</span>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <div class="section-head">
+          <h2>最近记录</h2>
+          <div class="actions">
+            <button id="export-csv" type="button">CSV</button>
+            <button id="export-json" type="button">JSON</button>
+          </div>
+        </div>
+        <div id="activity-log" class="activity-log"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

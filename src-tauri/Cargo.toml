@@ -1,0 +1,12 @@
+[package]
+name = "focus-guard-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "focus_guard_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "focus-guard-native-host"
+path = "src/bin/native_host.rs"

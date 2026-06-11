@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Focus Guard Settings</title>
+    <link rel="stylesheet" href="interstitial.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="prompt settings-prompt">
+        <p class="eyebrow">SETTINGS</p>
+        <h1>Focus Guard</h1>
+        <form id="settings-form" class="settings-form">
+          <label class="checkbox">
+            <input id="focus-mode" type="checkbox" />
+            开启网页管控
+          </label>
+          <label>
+            默认分钟
+            <input id="default-minutes" type="number" min="1" step="1" />
+          </label>
+          <section class="quick-add" aria-label="快速添加规则">
+            <label>
+              快速添加网址
+              <input id="quick-url" type="text" placeholder="https://example.com/page" />
+            </label>
+            <div class="quick-actions">
+              <button id="add-quick-control" class="primary-action" type="button">
+                加入管控
+              </button>
+              <button id="add-quick-allow" class="secondary-action" type="button">
+                加入白名单
+              </button>
+            </div>
+          </section>
+          <div class="settings-grid">
+            <label>
+              管控列表
+              <textarea id="high-risk-domains" rows="16" spellcheck="false"></textarea>
+            </label>
+            <label>
+              白名单
+              <textarea id="allowlist-rules" rows="16" spellcheck="false"></textarea>
+            </label>
+          </div>
+          <button id="save-config" class="full-width-action" type="submit">保存规则</button>
+          <button id="undo-last-rule" class="secondary-action" type="button">
+            撤销上次新网站分类
+          </button>
+          <p id="settings-status" class="status" role="status"></p>
+        </form>
+      </section>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

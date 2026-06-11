@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Focus Guard</title>
+    <link rel="stylesheet" href="interstitial.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="prompt" aria-labelledby="prompt-title">
+        <p class="eyebrow">FOCUS GUARD</p>
+        <h1 id="prompt-title">你打开这个网站是为了什么？</h1>
+        <p id="target" class="target"></p>
+
+        <div id="candidate-list" class="candidate-list" aria-label="已保存用途"></div>
+
+        <form id="intent-form" class="intent-form">
+          <label for="custom-reason">其他用途</label>
+          <textarea
+            id="custom-reason"
+            name="reason"
+            rows="3"
+            placeholder="例如：查数据库课程资料"
+            required
+          ></textarea>
+
+          <div class="row">
+            <label for="intent-category">分类</label>
+            <select id="intent-category" name="category">
+              <option value="study">学</option>
+              <option value="play">玩</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <label for="custom-minutes">分钟</label>
+            <input id="custom-minutes" name="minutes" type="number" min="1" max="240" value="20" />
+          </div>
+
+          <label class="checkbox">
+            <input id="save-candidate" name="saveCandidate" type="checkbox" checked />
+            加入下次候选项
+          </label>
+
+          <button type="submit">开始计时</button>
+        </form>
+      </section>
+    </main>
+
+    <script src="interstitial.js"></script>
+  </body>
+</html>

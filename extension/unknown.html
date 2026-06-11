@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Focus Guard 新网站</title>
+    <link rel="stylesheet" href="interstitial.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="prompt compact-prompt">
+        <p class="eyebrow">FOCUS GUARD</p>
+        <h1>这个网站要管控吗？</h1>
+        <p id="unknown-target" class="target"></p>
+        <div class="force-actions" aria-label="新网站处理方式">
+          <button id="add-control" class="primary-action" type="button">
+            加入管控列表
+          </button>
+          <button id="allow-once" class="secondary-action" type="button">
+            仅本次放行 30 分钟
+          </button>
+          <button id="ignore-site" class="secondary-action" type="button">
+            忽略并加入白名单
+          </button>
+        </div>
+      </section>
+    </main>
+    <script src="unknown.js"></script>
+  </body>
+</html>
