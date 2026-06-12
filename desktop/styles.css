@@ -35,6 +35,18 @@ body {
   padding: 18px 28px;
 }
 
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+}
+
 .eyebrow {
   margin: 0 0 4px;
   color: var(--accent);
@@ -84,6 +96,41 @@ button {
   font: inherit;
   font-weight: 800;
   padding: 0 12px;
+  transition: all 0.15s ease;
+}
+
+button:hover {
+  background: #e5c63e;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+button:active {
+  transform: translateY(0);
+  box-shadow: none;
+  background: #d9b932;
+}
+
+.btn-confirm {
+  background: var(--good);
+  color: white;
+  border-color: var(--good);
+}
+
+.btn-confirm:hover {
+  background: #28816f;
+  border-color: #28816f;
+}
+
+.btn-cancel {
+  background: var(--muted);
+  color: white;
+  border-color: var(--muted);
+}
+
+.btn-cancel:hover {
+  background: #555e6a;
+  border-color: #555e6a;
 }
 
 .layout {
@@ -132,6 +179,57 @@ input[type="number"] {
   color: var(--ink);
   font: 14px/1.4 "Cascadia Mono", "Consolas", monospace;
   padding: 8px 10px;
+  transition: border-color 0.15s ease;
+}
+
+input[type="text"]:focus,
+input[type="url"]:focus,
+input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(181, 72, 50, 0.15);
+}
+
+.inline-input-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+}
+
+.inline-input-row input {
+  flex: 1;
+}
+
+.inline-input-row.hidden {
+  display: none;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+
+.status-dot.connected {
+  background: var(--good);
+  box-shadow: 0 0 6px rgba(47, 143, 131, 0.5);
+}
+
+.status-dot.testing {
+  background: #f59e0b;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.status-dot.error {
+  background: var(--accent);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .hint {
@@ -208,6 +306,34 @@ input[type="number"] {
 .empty {
   color: var(--muted);
   margin: 0;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty-state svg {
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+
+.empty-hint {
+  font-size: 14px;
+  margin: 0;
+  max-width: 280px;
 }
 
 @media (max-width: 760px) {

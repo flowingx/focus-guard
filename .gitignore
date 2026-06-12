@@ -1,1 +1,8 @@
 src-tauri/target/
+node_modules/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+models/

@@ -8,9 +8,18 @@
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <p class="eyebrow">FOCUS GUARD</p>
-        <h1>专注守门员</h1>
+      <div class="brand">
+        <div class="logo">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="16" cy="16" r="15" stroke="currentColor" stroke-width="2"/>
+            <path d="M16 8L16 16L22 22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="16" cy="16" r="3" fill="currentColor"/>
+          </svg>
+        </div>
+        <div>
+          <p class="eyebrow">FOCUS GUARD</p>
+          <h1>专注守护</h1>
+        </div>
       </div>
       <div class="status">
         <span id="focus-state">专注模式开启</span>
@@ -25,6 +34,11 @@
           <button id="add-domain" type="button">添加</button>
         </div>
         <textarea id="high-risk-domains" rows="12" spellcheck="false"></textarea>
+        <div id="domain-input-row" class="inline-input-row hidden">
+          <input id="domain-input" type="text" placeholder="例如 zhihu.com" />
+          <button id="domain-confirm" type="button" class="btn-confirm">确认</button>
+          <button id="domain-cancel" type="button" class="btn-cancel">取消</button>
+        </div>
       </section>
 
       <section class="panel">
@@ -33,6 +47,11 @@
           <button id="add-app" type="button">添加</button>
         </div>
         <textarea id="monitored-apps" rows="12" spellcheck="false"></textarea>
+        <div id="app-input-row" class="inline-input-row hidden">
+          <input id="app-input" type="text" placeholder="例如 WeChat.exe" />
+          <button id="app-confirm" type="button" class="btn-confirm">确认</button>
+          <button id="app-cancel" type="button" class="btn-cancel">取消</button>
+        </div>
       </section>
 
       <section class="panel wide">
@@ -41,13 +60,18 @@
           <button id="add-allowlist-rule" type="button">添加</button>
         </div>
         <textarea id="allowlist-rules" rows="8" spellcheck="false"></textarea>
+        <div id="rule-input-row" class="inline-input-row hidden">
+          <input id="rule-input" type="text" placeholder="例如 *.edu.cn 或 gemini.google.com" />
+          <button id="rule-confirm" type="button" class="btn-confirm">确认</button>
+          <button id="rule-cancel" type="button" class="btn-cancel">取消</button>
+        </div>
       </section>
 
       <section class="panel wide">
         <div class="section-head">
           <div>
             <h2>本地 AI 管控</h2>
-            <p class="hint">默认关闭；只连接本机 endpoint，失联时不影响现有规则。</p>
+            <p class="hint">截图分析由 Rust 后端自动完成（Win32 API），无需浏览器授权。此面板仅配置和测试连接。</p>
           </div>
           <label class="switch-row">
             <input id="local-ai-enabled" type="checkbox" />
@@ -76,6 +100,7 @@
 
         <div class="ai-test-row">
           <button id="test-local-ai" type="button">测试一次</button>
+          <span id="ai-status-dot" class="status-dot"></span>
           <span id="local-ai-status" class="pill muted-pill">未连接</span>
         </div>
       </section>

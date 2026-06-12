@@ -20,6 +20,8 @@ document.getElementById("continue-study").addEventListener("click", async () => 
 
   if (originalUrl) {
     location.href = originalUrl;
+  } else {
+    history.back();
   }
 });
 

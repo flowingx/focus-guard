@@ -24,7 +24,7 @@ async function decide(decision) {
     decision,
   });
 
-  if (response?.nextUrl) {
+  if (response?.nextUrl && response.nextUrl !== "null") {
     location.href = response.nextUrl;
   }
 }

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Focus Guard — 测试报告 2026-06-12</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.6; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+  h1 { font-size: 2.2rem; font-weight: 700; background: linear-gradient(135deg, #38bdf8, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+  .subtitle { color: #94a3b8; font-size: 1rem; margin-bottom: 40px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 40px; }
+  .summary-card { background: #1e293b; border-radius: 12px; padding: 24px; text-align: center; border: 1px solid #334155; }
+  .summary-card .number { font-size: 2.5rem; font-weight: 800; }
+  .summary-card .label { color: #94a3b8; font-size: 0.85rem; margin-top: 4px; }
+  .pass { color: #34d399; }
+  .add { color: #38bdf8; }
+  .section { margin-bottom: 36px; }
+  .section-title { font-size: 1.3rem; font-weight: 600; color: #f1f5f9; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid #334155; }
+  table { width: 100%; border-collapse: collapse; background: #1e293b; border-radius: 8px; overflow: hidden; }
+  th { background: #334155; padding: 12px 16px; text-align: left; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; }
+  td { padding: 10px 16px; border-top: 1px solid #1e293b; font-size: 0.9rem; }
+  tr:nth-child(even) { background: #172032; }
+  .status-ok { color: #34d399; font-weight: 600; }
+  .status-fix { color: #fbbf24; font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+  .badge-critical { background: #dc262620; color: #f87171; }
+  .badge-high { background: #f59e0b20; color: #fbbf24; }
+  .badge-medium { background: #3b82f620; color: #60a5fa; }
+  .badge-low { background: #6b728020; color: #9ca3af; }
+  .screenshot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .screenshot-card { background: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid #334155; }
+  .screenshot-card img { width: 100%; display: block; }
+  .screenshot-card .caption { padding: 12px 16px; font-size: 0.85rem; color: #94a3b8; }
+  .code-block { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 16px; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.8rem; overflow-x: auto; color: #94a3b8; margin-top: 12px; }
+  .code-block .pass { color: #34d399; }
+  .code-block .fail { color: #f87171; }
+  .footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid #334155; color: #64748b; font-size: 0.8rem; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Focus Guard — 测试报告</h1>
+<p class="subtitle">生成时间：2026-06-12 | 项目路径：F:\X_code\Projects\agent\focus-guard</p>
+
+<div class="summary-grid">
+  <div class="summary-card">
+    <div class="number pass">119</div>
+    <div class="label">总测试数</div>
+  </div>
+  <div class="summary-card">
+    <div class="number pass">119</div>
+    <div class="label">通过</div>
+  </div>
+  <div class="summary-card">
+    <div class="number" style="color:#f87171">0</div>
+    <div class="label">失败</div>
+  </div>
+  <div class="summary-card">
+    <div class="number add">+79</div>
+    <div class="label">相比优化前新增</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2 class="section-title">测试结果总览</h2>
+  <table>
+    <thead>
+      <tr><th>测试套件</th><th>优化前</th><th>优化后</th><th>新增</th><th>状态</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>JS — policy.test.js</td><td>15</td><td>31</td><td>+16</td><td class="status-ok">✅ 全部通过</td></tr>
+      <tr><td>JS — extension.test.js</td><td>12</td><td>12</td><td>0</td><td class="status-ok">✅ 全部通过</td></tr>
+      <tr><td>JS — desktop-ui.test.js</td><td>3</td><td>17</td><td>+14</td><td class="status-ok">✅ 全部通过</td></tr>
+      <tr><td>Rust — desktop_policy.rs</td><td>15</td><td>59</td><td>+44</td><td class="status-ok">✅ 全部通过</td></tr>
+      <tr style="font-weight:700; background:#172032"><td>总计</td><td>45</td><td>119</td><td>+74</td><td class="status-ok">✅ 119/119</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2 class="section-title">界面截图</h2>
+  <div class="screenshot-grid">
+    <div class="screenshot-card">
+      <img src="desktop-ui.png" alt="Desktop UI">
+      <div class="caption">Desktop 设置界面 — 内联输入替代 prompt()、AI 状态指示器、按钮样式优化</div>
+    </div>
+    <div class="screenshot-card">
+      <img src="extension-interstitial.png" alt="Extension Interstitial">
+      <div class="caption">Extension 意图提示页 — 渐变背景、卡片式布局、按钮动效</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2 class="section-title">Bug 修复清单（17 项）</h2>
+  <table>
+    <thead>
+      <tr><th>文件</th><th>问题</th><th>严重度</th><th>状态</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>native_host.rs</td><td>单次读取后退出，Chrome 认为主机崩溃</td><td><span class="badge badge-critical">Critical</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>lib.rs</td><td>append_activity_jsonl 重复写入 O(n²)</td><td><span class="badge badge-critical">Critical</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>focus_monitor.rs</td><td>Duration 不支持 serde 序列化</td><td><span class="badge badge-critical">Critical</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>lib.rs</td><td>post_json 不校验 HTTP 状态码</td><td><span class="badge badge-high">High</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>app.js</td><td>JSON.parse 无 try/catch 崩溃 UI</td><td><span class="badge badge-high">High</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>background.js</td><td>onMessage 无 .catch() 静默丢响应</td><td><span class="badge badge-high">High</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>interstitial.js</td><td>target/originalUrl 为 null 崩溃</td><td><span class="badge badge-medium">Medium</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>expired.js</td><td>originalUrl 为 null 导航到 "null"</td><td><span class="badge badge-medium">Medium</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>unknown.js</td><td>nextUrl 为 null 导航异常</td><td><span class="badge badge-medium">Medium</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>app.js</td><td>testLocalAi 无超时，UI 永久显示"测试中"</td><td><span class="badge badge-medium">Medium</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>background.js</td><td>storeIntent 不校验 reason 为 null</td><td><span class="badge badge-medium">Medium</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>screenshot.rs</td><td>GDI 资源泄漏（错误路径未释放）</td><td><span class="badge badge-medium">Medium</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>lib.rs</td><td>手写 JSON 解析器匹配字符串内部</td><td><span class="badge badge-medium">Medium</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>lib.rs</td><td>json_escape/csv_escape 缺少 \r \t</td><td><span class="badge badge-medium">Medium</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>lib.rs</td><td>AI 端点配置三处不一致</td><td><span class="badge badge-medium">Medium</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>app.js</td><td>activityLog 无限增长可能超 5MB</td><td><span class="badge badge-medium">Medium</span></td><td class="status-fix">已修复</td></tr>
+      <tr><td>manifest.json</td><td>缺少 CSP 安全策略</td><td><span class="badge badge-low">Low</span></td><td class="status-fix">已修复</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2 class="section-title">架构改进</h2>
+  <table>
+    <thead>
+      <tr><th>改进项</th><th>优化前</th><th>优化后</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>AI 端点配置</td><td>3 处不一致（Ollama/OpenAI/混合）</td><td>统一为 llama.cpp OpenAI 格式</td></tr>
+      <tr><td>JSON 解析</td><td>手写 string.find() 解析器</td><td>迁移到 serde_json</td></tr>
+      <tr><td>.gitignore</td><td>仅忽略 src-tauri/target/</td><td>完整覆盖 node_modules、IDE、OS 文件</td></tr>
+      <tr><td>CI/CD</td><td>无</td><td>GitHub Actions 自动化测试</td></tr>
+      <tr><td>README</td><td>基础版本</td><td>中英双语、架构图、完整文档</td></tr>
+      <tr><td>Desktop UI</td><td>使用 prompt() 弹窗</td><td>内联输入、状态指示器、空状态、按钮样式</td></tr>
+      <tr><td>Extension UI</td><td>基础样式</td><td>渐变背景、卡片布局、toast 动画、CSP</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2 class="section-title">测试详情 — Rust（59 项）</h2>
+  <div class="code-block">
+<span class="pass">test result: ok. 59 passed; 0 failed; 0 ignored</span>
+
+分类覆盖：
+  • json_escape         — 7 项（\r, \t, \n, \, ", 组合, 无特殊字符）
+  • csv_escape          — 5 项（\r, 逗号, 引号, 换行, 组合）
+  • classify_context    — 6 项（study/work/distraction/unknown/malformed/empty）
+  • parse_http_endpoint — 5 项（默认端口/自定义端口/无路径/拒绝 HTTPS/拒绝非 localhost）
+  • matches_host_rule   — 7 项（精确/通配符/大小写/空规则/嵌套 www）
+  • strip_www           — 3 项（去除/保留/嵌套）
+  • is_target_allowlisted — 4 项（域名/应用/未知域名/未知应用）
+  • encode/decode_native_message — 3 项（往返/截断/无效 UTF-8）
+  • AI policy          — 5 项（连续命中/冷却/低置信度/白名单/忽略未知）
+  • 其他               — 14 项（activity export, foreground window, monitored apps 等）
+  </div>
+</div>
+
+<div class="section">
+  <h2 class="section-title">测试详情 — JavaScript（60 项）</h2>
+  <div class="code-block">
+<span class="pass"># tests 60 | pass 60 | fail 0 | duration_ms 39.47</span>
+
+分类覆盖：
+  • policy.test.js      — 31 项（domain matching, sessions, candidates, submitCustomIntent）
+  • extension.test.js   — 12 项（manifest, interstitial, alarms, icons, pages, options）
+  • desktop-ui.test.js  — 17 项（HTML structure, Tauri config, escapeHtml, parseAnalysisResult）
+  </div>
+</div>
+
+<div class="section">
+  <h2 class="section-title">构建状态</h2>
+  <table>
+    <thead>
+      <tr><th>检查项</th><th>结果</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>cargo test</td><td class="status-ok">✅ 59/59 通过，0 warnings</td></tr>
+      <tr><td>cargo build --release</td><td class="status-ok">✅ 构建成功</td></tr>
+      <tr><td>node tests/run.js</td><td class="status-ok">✅ 60/60 通过</td></tr>
+      <tr><td>Compiler warnings</td><td class="status-ok">✅ 0 warnings（已清理）</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="footer">
+  Focus Guard Test Report — Generated by MiMoCode Agent — 2026-06-12
+</div>
+
+</div>
+</body>
+</html>

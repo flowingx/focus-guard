@@ -28,8 +28,8 @@ const DEFAULT_APPS = ["WeChat.exe", "QQ.exe", "Doubao.exe", "doubao.exe"];
 
 const DEFAULT_LOCAL_AI = {
   enabled: false,
-  endpoint: "http://127.0.0.1:11434/api/generate",
-  model: "qwen2.5vl:3b",
+  endpoint: "http://127.0.0.1:8080",
+  model: "Qwen3-4B-Q4_K_M.gguf",
   sampleIntervalSeconds: 30,
   confidenceThreshold: 0.75,
 };
@@ -128,34 +128,78 @@ document.getElementById("test-local-ai").addEventListener("click", async () => {
   await testLocalAi();
 });
 
-document.getElementById("add-domain").addEventListener("click", () => {
-  const value = prompt("添加网站域名，例如 zhihu.com");
+function setupInlineInput(config) {
+  const { addBtnId, inputRowId, inputId, confirmId, cancelId, placeholder, onAdd } = config;
+  const addBtn = document.getElementById(addBtnId);
+  const inputRow = document.getElementById(inputRowId);
+  const input = document.getElementById(inputId);
+  const confirmBtn = document.getElementById(confirmId);
+  const cancelBtn = document.getElementById(cancelId);
 
-  if (value) {
-    state.highRiskDomains = unique([...state.highRiskDomains, value.trim()]);
+  function show() {
+    inputRow.classList.remove("hidden");
+    input.value = "";
+    input.focus();
+  }
+
+  function hide() {
+    inputRow.classList.add("hidden");
+  }
+
+  function confirm() {
+    const value = input.value.trim();
+    if (value) {
+      onAdd(value);
+      hide();
+    }
+  }
+
+  addBtn.addEventListener("click", show);
+  confirmBtn.addEventListener("click", confirm);
+  cancelBtn.addEventListener("click", hide);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") confirm();
+    if (e.key === "Escape") hide();
+  });
+}
+
+setupInlineInput({
+  addBtnId: "add-domain",
+  inputRowId: "domain-input-row",
+  inputId: "domain-input",
+  confirmId: "domain-confirm",
+  cancelId: "domain-cancel",
+  onAdd: (value) => {
+    state.highRiskDomains = unique([...state.highRiskDomains, value]);
     saveState();
     render();
-  }
+  },
 });
 
-document.getElementById("add-app").addEventListener("click", () => {
-  const value = prompt("添加进程名，例如 WeChat.exe");
-
-  if (value) {
-    state.monitoredApps = unique([...state.monitoredApps, value.trim()]);
+setupInlineInput({
+  addBtnId: "add-app",
+  inputRowId: "app-input-row",
+  inputId: "app-input",
+  confirmId: "app-confirm",
+  cancelId: "app-cancel",
+  onAdd: (value) => {
+    state.monitoredApps = unique([...state.monitoredApps, value]);
     saveState();
     render();
-  }
+  },
 });
 
-document.getElementById("add-allowlist-rule").addEventListener("click", () => {
-  const value = prompt("添加白名单规则，例如 *.edu.cn 或 gemini.google.com");
-
-  if (value) {
-    state.allowlistRules = unique([...state.allowlistRules, value.trim()]);
+setupInlineInput({
+  addBtnId: "add-allowlist-rule",
+  inputRowId: "rule-input-row",
+  inputId: "rule-input",
+  confirmId: "rule-confirm",
+  cancelId: "rule-cancel",
+  onAdd: (value) => {
+    state.allowlistRules = unique([...state.allowlistRules, value]);
     saveState();
     render();
-  }
+  },
 });
 
 document.getElementById("export-csv").addEventListener("click", () => {
@@ -188,16 +232,38 @@ function render() {
 
 function renderLocalAiStatus() {
   const status = document.getElementById("local-ai-status");
+  const dot = document.getElementById("ai-status-dot");
   const stateText = state.localAi.status ?? (state.localAi.enabled ? "待测试" : "未启用");
   status.textContent = stateText;
-  status.className = `pill ${stateText === "已连接" ? "ok-pill" : "muted-pill"}`;
+
+  dot.className = "status-dot";
+  if (stateText.includes("已连接")) {
+    status.className = "pill ok-pill";
+    dot.classList.add("connected");
+  } else if (stateText === "测试中...") {
+    status.className = "pill muted-pill";
+    dot.classList.add("testing");
+  } else if (stateText === "输出异常" || stateText === "未连接") {
+    status.className = "pill muted-pill";
+    dot.classList.add("error");
+  } else {
+    status.className = "pill muted-pill";
+  }
 }
 
 function renderActivity() {
   const container = document.getElementById("activity-log");
 
   if (state.activityLog.length === 0) {
-    container.innerHTML = '<p class="empty">还没有记录。打开高风险网站或应用后会出现在这里。</p>';
+    container.innerHTML = `
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="24" cy="24" r="23" stroke="currentColor" stroke-width="2" stroke-dasharray="4 4"/>
+          <path d="M24 16v12M24 32v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <p class="empty-title">暂无活动记录</p>
+        <p class="empty-hint">当检测到高风险网站或应用的使用时，记录会显示在这里。</p>
+      </div>`;
     return;
   }
 
@@ -219,15 +285,19 @@ function loadState() {
   const stored = localStorage.getItem("focus-guard-state");
 
   if (stored) {
-    const parsed = JSON.parse(stored);
-    return {
-      ...parsed,
-      highRiskDomains: parsed.highRiskDomains ?? DEFAULT_DOMAINS,
-      allowlistRules: parsed.allowlistRules ?? DEFAULT_ALLOWLIST_RULES,
-      monitoredApps: parsed.monitoredApps ?? DEFAULT_APPS,
-      activityLog: parsed.activityLog ?? [],
-      localAi: { ...DEFAULT_LOCAL_AI, ...(parsed.localAi ?? {}) },
-    };
+    try {
+      const parsed = JSON.parse(stored);
+      return {
+        ...parsed,
+        highRiskDomains: parsed.highRiskDomains ?? DEFAULT_DOMAINS,
+        allowlistRules: parsed.allowlistRules ?? DEFAULT_ALLOWLIST_RULES,
+        monitoredApps: parsed.monitoredApps ?? DEFAULT_APPS,
+        activityLog: parsed.activityLog ?? [],
+        localAi: { ...DEFAULT_LOCAL_AI, ...(parsed.localAi ?? {}) },
+      };
+    } catch {
+      localStorage.removeItem("focus-guard-state");
+    }
   }
 
   return {
@@ -241,6 +311,9 @@ function loadState() {
 }
 
 function saveState() {
+  if (state.activityLog.length > 500) {
+    state.activityLog = state.activityLog.slice(-500);
+  }
   localStorage.setItem("focus-guard-state", JSON.stringify(state));
 }
 
@@ -286,27 +359,39 @@ function download(filename, content, type) {
 }
 
 async function testLocalAi() {
-  state.localAi.status = "测试中";
+  state.localAi.status = "测试中...";
   renderLocalAiStatus();
 
   try {
-    const response = await fetch(state.localAi.endpoint, {
+    const url = `${state.localAi.endpoint}/v1/chat/completions`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: state.localAi.model,
-        prompt:
-          "Return JSON only. Classify this Focus Guard settings screen as study, work, entertainment, distracting, or unknown. Fields: category, confidence, reason, suggested_action.",
+        messages: [
+          {
+            role: "user",
+            content: "Reply with exactly: {\"status\":\"ok\",\"model\":\"your_name\"}",
+          },
+        ],
         stream: false,
+        max_tokens: 64,
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
 
     const payload = await response.json();
-    state.localAi.status = isStructuredAiOutput(payload.response) ? "已连接" : "输出异常";
+    const content = payload.choices?.[0]?.message?.content ?? "";
+    const model = payload.model || state.localAi.model;
+    state.localAi.status = content.includes("ok") ? `已连接 (${model})` : "输出异常";
   } catch {
     state.localAi.status = "未连接";
   }
@@ -315,17 +400,26 @@ async function testLocalAi() {
   renderLocalAiStatus();
 }
 
-function isStructuredAiOutput(value) {
-  if (typeof value !== "string") {
-    return false;
-  }
-
+function parseAnalysisResult(text) {
   try {
-    const parsed = JSON.parse(value);
-    return typeof parsed.category === "string" && typeof parsed.confidence === "number";
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]);
+    if (typeof parsed.category === "string" && typeof parsed.confidence === "number") {
+      return {
+        category: parsed.category,
+        confidence: parsed.confidence,
+        description: parsed.description || "",
+      };
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function isStructuredAiOutput(value) {
+  return parseAnalysisResult(value) !== null;
 }
 
 function clampNumber(value, min, max, fallback) {

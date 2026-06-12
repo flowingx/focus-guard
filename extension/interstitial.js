@@ -1,6 +1,6 @@
 const params = new URLSearchParams(location.search);
-const target = params.get("target");
-const originalUrl = params.get("url");
+const target = params.get("target") ?? "";
+const originalUrl = params.get("url") ?? "";
 
 document.getElementById("target").textContent = originalUrl ?? target ?? "";
 

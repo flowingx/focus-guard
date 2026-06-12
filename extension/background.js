@@ -181,7 +181,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  handleMessage(message, sender).then(sendResponse);
+  handleMessage(message, sender).then(sendResponse).catch(() => sendResponse({ ok: false }));
   return true;
 });
 
@@ -458,7 +458,8 @@ async function storeIntent(message, sender) {
     "activityLog",
   ]);
   const now = Date.now();
-  const reason = message.reason.trim();
+  const reason = String(message.reason ?? "").trim();
+  if (!reason) return { ok: false };
   const minutes = Number(message.minutes);
   const category = message.category ?? "study";
   const expiryAction = message.expiryAction ?? expiryActionForCategory(category);

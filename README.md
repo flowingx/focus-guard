@@ -1,60 +1,237 @@
-# Focus Guard
+# Focus Guard 专注守门员
 
-Focus Guard is a Windows-first focus guard MVP with two parts:
+[English](#english) | [中文](#中文)
 
-- A Chrome/Edge Manifest V3 extension that pauses high-risk websites until the user states an intent.
-- A Rust desktop helper core with Windows foreground-window monitoring and Chrome Native Messaging framing.
+## English
 
-The first version uses soft reminders and time-boxed sessions. It does not force-kill apps or try to infer intent with AI.
+### Description
 
-## What Works
+Focus Guard is a Windows-first focus guard application that helps you stay productive by soft-blocking distracting websites and monitoring desktop applications. It consists of a Chrome/Edge extension and a Rust desktop backend, working together to create a mindful browsing experience.
 
-- Default high-risk domains include Bilibili, YouTube, Douyin, Zhihu, Xiaohongshu, Weibo, Reddit, Twitch, Huya, Douyu, and more.
-- High-risk site matching supports wildcard site-name rules such as `*.bilibili.*`, so country/TLD variants still match while unrelated domains such as `notbilibili.com` do not.
-- Allowlist rules bypass focus prompts. Defaults include school suffixes (`*.edu`, `*.edu.cn`), search engines, and common AI research tools such as ChatGPT, Gemini, Tencent Yuanbao, ChatGLM, Kimi, DeepSeek, Doubao, Tongyi/Qwen, Copilot, Claude, Perplexity, Poe, Phind, You.com, Metaso, and iFlytek Spark.
-- Exact allowlist rules can use `=domain`, for example `=baidu.com`, so search homepages can be allowed without allowing distracting subdomains such as Tieba.
-- High-risk visits ask for a custom reason and duration.
-- Unknown sites that are not allowlisted show a non-blocking in-page prompt instead of redirecting to a guard page. Choosing ignore adds that site to the allowlist.
-- Unknown sites can also be allowed temporarily for 30 minutes without changing the high-risk or allowlist rules.
-- The extension options page can edit focus mode, default duration, high-risk rules, and allowlist rules.
-- High-risk sites also show default intent presets before custom input.
-- Video sites start with three presets: `放松 10 分钟` (play, closes tab on expiry), `看网课/学习视频` (study, asks whether you are still studying), and `觉得无聊，先停一下` (play, closes tab on expiry).
-- Later visits show up to three saved/default intent candidates and an "Other" path.
-- Extension sessions expire through Chrome alarms and notifications.
-- Rust core evaluates monitored apps such as WeChat, QQ, and Doubao.
-- Rust core can read the Windows foreground process/window snapshot.
-- Native host appends desktop-side activity records to `%LOCALAPPDATA%\FocusGuard\activity.jsonl`.
-- Activity can be exported from the desktop UI as CSV/JSON.
+### Architecture
 
-## Run Tests
-
-```powershell
-npm test
-npm run test:rust
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Chrome/Edge   │     │  Native Host    │     │   Rust Backend  │     │   Desktop UI    │
+│   Extension     │◄───►│  (Messaging)    │◄───►│   (Core Logic)  │◄───►│   (Tauri)       │
+└─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
+        │                       │                       │                       │
+        ▼                       ▼                       ▼                       ▼
+   Interstitial           Windows API           Focus Monitor           Activity Log
+   Options Page           Screenshot            AI Analysis            Settings Panel
+   Content Scripts        Process Monitor       Reminder Engine         Export (CSV/JSON)
 ```
 
-## Load the Extension
+### Features
 
-1. Open Chrome or Edge.
-2. Go to `chrome://extensions` or `edge://extensions`.
-3. Enable developer mode.
-4. Choose "Load unpacked".
-5. Select the `extension` folder.
+- **Smart Website Blocking**: Soft-blocks distracting sites with intent-based access
+- **Intent Presets**: Customizable focus modes for different activities
+- **Wildcard Domain Matching**: Supports patterns like `*.bilibili.*` for cross-TLD matching
+- **Allowlist Rules**: Bypass focus prompts for productive sites (search engines, AI tools)
+- **Desktop App Monitoring**: Tracks foreground applications (WeChat, QQ, etc.)
+- **Local AI Analysis**: Optional screenshot analysis for enhanced focus detection
+- **Activity Logging**: Records all focus sessions and interruptions
+- **Cross-Platform**: Works on Windows with Chrome/Edge browsers
 
-## Build the Native Host
+### Prerequisites
 
-```powershell
+- **Node.js** (v18+ recommended)
+- **Rust** (latest stable)
+- **Chrome/Edge** browser with developer mode enabled
+- **Windows 10/11** (for desktop monitoring features)
+
+### Installation
+
+#### 1. Clone the repository
+```bash
+git clone https://github.com/your-username/focus-guard.git
+cd focus-guard
+```
+
+#### 2. Install dependencies
+```bash
+npm install
+```
+
+#### 3. Build the native host
+```bash
 cargo build --manifest-path src-tauri/Cargo.toml --bin focus-guard-native-host
 ```
 
-After building, update `extension/native-messaging-host.example.json` with the absolute path to `focus-guard-native-host.exe`, then register that manifest in the Chrome/Edge native messaging host registry location.
+#### 4. Load the extension
+1. Open Chrome/Edge and navigate to `chrome://extensions` or `edge://extensions`
+2. Enable "Developer mode"
+3. Click "Load unpacked" and select the `extension` folder
 
-## Desktop UI
+#### 5. Register native messaging host
+1. Copy `extension/native-messaging-host.example.json`
+2. Update the `path` field with the absolute path to `focus-guard-native-host.exe`
+3. Register the manifest in your browser's native messaging host location
 
-The current desktop UI is in `desktop/index.html`. It is shaped for a Tauri shell through `src-tauri/tauri.conf.json`, while the Rust core is kept dependency-light so tests can run without downloading Tauri packages.
+### Development Setup
 
-## Current MVP Limits
+```bash
+# Install dependencies
+npm install
 
-- The extension can run standalone with browser-local storage if the native host is not registered.
-- The Rust native host processes one Chrome Native Messaging payload per invocation, which matches Chrome's native-host launch model.
-- The first version is intentionally soft-blocking. It warns, time-boxes, records, and reminds rather than forcibly closing apps.
+# Run tests
+npm test
+
+# Run Rust tests
+npm run test:rust
+
+# Run all tests
+npm run test:all
+```
+
+### Running Tests
+
+```bash
+# Run JavaScript tests
+npm test
+
+# Run Rust tests
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Run all tests
+npm run test:all
+```
+
+### AI Setup (Optional)
+
+Focus Guard supports optional local AI analysis for enhanced focus detection:
+
+1. Install [llama.cpp](https://github.com/ggerganov/llama.cpp) or compatible server
+2. Download the **Qwen3-VL-4B** model (or similar vision model)
+3. Start the AI server with vision capabilities
+4. Configure the endpoint in the Desktop UI settings panel
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 中文
+
+### 项目描述
+
+Focus Guard 是一个以 Windows 为核心的专注守门员应用，通过软性阻止干扰性网站和监控桌面应用程序来帮助你保持高效。它由 Chrome/Edge 扩展和 Rust 桌面后端组成，共同创建一个专注的浏览体验。
+
+### 系统架构
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Chrome/Edge   │     │  原生主机        │     │   Rust 后端      │     │   桌面 UI       │
+│   扩展          │◄───►│  (消息传递)      │◄───►│   (核心逻辑)     │◄───►│   (Tauri)       │
+└─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
+        │                       │                       │                       │
+        ▼                       ▼                       ▼                       ▼
+   中间页面               Windows API            专注监控              活动日志
+   选项页面               截图分析                AI 分析              设置面板
+   内容脚本               进程监控                提醒引擎              导出 (CSV/JSON)
+```
+
+### 功能特点
+
+- **智能网站阻止**：基于意图的软性阻止干扰性网站
+- **意图预设**：针对不同活动的可自定义专注模式
+- **通配符域名匹配**：支持 `*.bilibili.*` 等跨 TLD 匹配模式
+- **白名单规则**：为生产力网站绕过专注提示（搜索引擎、AI 工具）
+- **桌面应用监控**：跟踪前台应用程序（微信、QQ 等）
+- **本地 AI 分析**：可选的截图分析，增强专注检测
+- **活动记录**：记录所有专注会话和中断
+- **跨平台支持**：支持 Windows 上的 Chrome/Edge 浏览器
+
+### 环境要求
+
+- **Node.js**（推荐 v18+）
+- **Rust**（最新稳定版）
+- **Chrome/Edge** 浏览器（需启用开发者模式）
+- **Windows 10/11**（桌面监控功能）
+
+### 安装步骤
+
+#### 1. 克隆仓库
+```bash
+git clone https://github.com/your-username/focus-guard.git
+cd focus-guard
+```
+
+#### 2. 安装依赖
+```bash
+npm install
+```
+
+#### 3. 构建原生主机
+```bash
+cargo build --manifest-path src-tauri/Cargo.toml --bin focus-guard-native-host
+```
+
+#### 4. 加载扩展
+1. 打开 Chrome/Edge，访问 `chrome://extensions` 或 `edge://extensions`
+2. 启用"开发者模式"
+3. 点击"加载已解压的扩展程序"，选择 `extension` 文件夹
+
+#### 5. 注册原生消息主机
+1. 复制 `extension/native-messaging-host.example.json`
+2. 更新 `path` 字段为 `focus-guard-native-host.exe` 的绝对路径
+3. 将清单文件注册到浏览器的原生消息主机位置
+
+### 开发环境设置
+
+```bash
+# 安装依赖
+npm install
+
+# 运行测试
+npm test
+
+# 运行 Rust 测试
+npm run test:rust
+
+# 运行所有测试
+npm run test:all
+```
+
+### 运行测试
+
+```bash
+# 运行 JavaScript 测试
+npm test
+
+# 运行 Rust 测试
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# 运行所有测试
+npm run test:all
+```
+
+### AI 设置（可选）
+
+Focus Guard 支持可选的本地 AI 分析，增强专注检测：
+
+1. 安装 [llama.cpp](https://github.com/ggerganov/llama.cpp) 或兼容服务器
+2. 下载 **Qwen3-VL-4B** 模型（或类似视觉模型）
+3. 启动支持视觉能力的 AI 服务器
+4. 在桌面 UI 设置面板中配置端点
+
+### 贡献指南
+
+1. Fork 仓库
+2. 创建功能分支（`git checkout -b feature/amazing-feature`）
+3. 提交更改（`git commit -m '添加惊人功能'`）
+4. 推送到分支（`git push origin feature/amazing-feature`）
+5. 创建 Pull Request
+
+### 许可证
+
+本项目采用 MIT 许可证 - 详情请查看 [LICENSE](LICENSE) 文件。

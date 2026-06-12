@@ -3,6 +3,11 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+pub mod screenshot;
+pub mod ai_analyzer;
+pub mod focus_monitor;
+pub mod reminder;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AppMonitorConfig {
     pub monitored_apps: Vec<String>,
@@ -44,8 +49,8 @@ impl Default for LocalAiConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            endpoint: "http://127.0.0.1:11434/api/generate".to_string(),
-            model: "qwen2.5vl:3b".to_string(),
+            endpoint: "http://127.0.0.1:8080/v1/chat/completions".to_string(),
+            model: "Qwen3-4B-Q4_K_M.gguf".to_string(),
             sample_interval_seconds: 30,
             confidence_threshold: 0.75,
             consecutive_hits_required: 2,
@@ -240,33 +245,62 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
     }
 
     match post_json(&config.endpoint, &local_ai_request_json(config, context)) {
-        Ok(response) => classify_context_from_ollama_response(&response),
+        Ok(response) => classify_context_from_llm_response(&response),
         Err(_) => AiClassification::unknown("local_ai_unavailable"),
     }
 }
 
 pub fn local_ai_request_json(config: &LocalAiConfig, context: &AiContext) -> String {
-    let prompt = format!(
-        "You are Focus Guard, a local-only desktop activity classifier. Classify the current Windows foreground context using process name, window title, and screenshot. Return JSON only with fields category, confidence, reason, suggested_action. Allowed category values: study, work, entertainment, distracting, unknown. Use distracting only when the user is likely killing time. Never include markdown or prose. Process: {}. Window title: {}.",
-        context.process_name, context.window_title
+    let title = if context.window_title.len() > 200 {
+        &context.window_title[..200]
+    } else {
+        &context.window_title
+    };
+    let user_content = format!(
+        "Process: {}. Window title: {}.",
+        context.process_name, title
     );
-    let images = context
-        .screenshot_base64
-        .as_ref()
-        .map(|image| format!(",\"images\":[\"{}\"]", json_escape(image)))
-        .unwrap_or_default();
+    let system_msg = "/no_think\nYou are Focus Guard, a local-only desktop activity classifier. Classify the current Windows foreground context. Return JSON only with fields category, confidence, reason. Allowed category values: study, work, entertainment, distracting, unknown. Use distracting only when the user is likely killing time. Never include markdown or prose.";
+
+    let content_array = if let Some(image) = &context.screenshot_base64 {
+        format!(
+            "[{{\"type\":\"text\",\"text\":\"{}\"}},{{\"type\":\"image_url\",\"image_url\":{{\"url\":\"data:image/png;base64,{}\"}}}}]",
+            json_escape(&user_content),
+            json_escape(image)
+        )
+    } else {
+        format!("[{{\"type\":\"text\",\"text\":\"{}\"}}]", json_escape(&user_content))
+    };
 
     format!(
-        "{{\"model\":\"{}\",\"prompt\":\"{}\",\"stream\":false{}}}",
+        "{{\"model\":\"{}\",\"messages\":[{{\"role\":\"system\",\"content\":\"{}\"}},{{\"role\":\"user\",\"content\":{}}}],\"max_tokens\":300,\"temperature\":0.1}}",
         json_escape(&config.model),
-        json_escape(&prompt),
-        images
+        json_escape(system_msg),
+        content_array
     )
 }
 
-pub fn classify_context_from_ollama_response(response_json: &str) -> AiClassification {
-    let model_text = json_string_field(response_json, "response")
-        .unwrap_or_else(|| response_json.trim().to_string());
+pub fn classify_context_from_llm_response(response_json: &str) -> AiClassification {
+    let model_text = match serde_json::from_str::<serde_json::Value>(response_json) {
+        Ok(v) => {
+            if let Some(content) = v
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str())
+            {
+                content.to_string()
+            } else if let Some(response) = v.get("response").and_then(|r| r.as_str()) {
+                response.to_string()
+            } else if let Some(reasoning) = v.get("reasoning_content").and_then(|r| r.as_str()) {
+                reasoning.to_string()
+            } else {
+                response_json.trim().to_string()
+            }
+        }
+        Err(_) => response_json.trim().to_string(),
+    };
     parse_ai_classification(&model_text)
 }
 
@@ -286,6 +320,18 @@ pub fn encode_native_message(json: &str) -> Vec<u8> {
     encoded.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
     encoded.extend_from_slice(bytes);
     encoded
+}
+
+pub fn decode_native_message(data: &[u8]) -> io::Result<String> {
+    if data.len() < 4 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "message too short"));
+    }
+    let len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+    if data.len() < 4 + len {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "message truncated"));
+    }
+    String::from_utf8(data[4..4 + len].to_vec())
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 pub fn handle_native_json(state: &mut AppPolicyState, json: &str, now_ms: u64) -> String {
@@ -365,7 +411,7 @@ pub fn append_activity_jsonl(path: &Path, state: &AppPolicyState) -> io::Result<
         .append(true)
         .open(path)?;
 
-    for record in &state.activity_log {
+    if let Some(record) = state.activity_log.last() {
         writeln!(file, "{}", activity_record_json(record))?;
     }
 
@@ -380,19 +426,21 @@ pub fn default_activity_log_path() -> PathBuf {
         .join("activity.jsonl")
 }
 
-fn csv_escape(value: &str) -> String {
-    if value.contains(',') || value.contains('"') || value.contains('\n') {
+pub fn csv_escape(value: &str) -> String {
+    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_string()
     }
 }
 
-fn json_escape(value: &str) -> String {
+pub fn json_escape(value: &str) -> String {
     value
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
 }
 
 fn activity_record_json(record: &ActivityRecord) -> String {
@@ -406,7 +454,7 @@ fn activity_record_json(record: &ActivityRecord) -> String {
     )
 }
 
-fn is_target_allowlisted(config: &AppMonitorConfig, target: &str) -> bool {
+pub fn is_target_allowlisted(config: &AppMonitorConfig, target: &str) -> bool {
     if let Some(process_name) = target.strip_prefix("app:") {
         return config
             .allowlisted_apps
@@ -440,7 +488,11 @@ fn ai_target_state_mut<'a>(states: &'a mut Vec<AiTargetState>, target: &str) -> 
 }
 
 fn parse_ai_classification(json: &str) -> AiClassification {
-    let Some(category) = json_string_field(json, "category") else {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json) else {
+        return AiClassification::unknown("invalid_model_json");
+    };
+
+    let Some(category) = v.get("category").and_then(|c| c.as_str()).map(String::from) else {
         return AiClassification::unknown("invalid_model_json");
     };
 
@@ -453,21 +505,23 @@ fn parse_ai_classification(json: &str) -> AiClassification {
 
     AiClassification {
         category,
-        confidence: json_f32_field(json, "confidence").unwrap_or(0.0),
-        reason: json_string_field(json, "reason").unwrap_or_default(),
-        suggested_action: json_string_field(json, "suggested_action")
-            .unwrap_or_else(|| "none".to_string()),
+        confidence: v.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.0) as f32,
+        reason: v.get("reason").and_then(|r| r.as_str()).unwrap_or_default().to_string(),
+        suggested_action: v.get("suggested_action")
+            .and_then(|a| a.as_str())
+            .unwrap_or("none")
+            .to_string(),
     }
 }
 
-fn json_string_field(json: &str, field: &str) -> Option<String> {
+pub fn json_string_field(json: &str, field: &str) -> Option<String> {
     let key = format!("\"{}\":\"", field);
     let start = json.find(&key)? + key.len();
     let rest = &json[start..];
     read_json_string(rest)
 }
 
-fn json_u32_field(json: &str, field: &str) -> Option<u32> {
+pub fn json_u32_field(json: &str, field: &str) -> Option<u32> {
     let key = format!("\"{}\":", field);
     let start = json.find(&key)? + key.len();
     let rest = &json[start..];
@@ -479,17 +533,18 @@ fn json_u32_field(json: &str, field: &str) -> Option<u32> {
     digits.parse().ok()
 }
 
-fn json_f32_field(json: &str, field: &str) -> Option<f32> {
+pub fn json_u64_field(json: &str, field: &str) -> Option<u64> {
     let key = format!("\"{}\":", field);
     let start = json.find(&key)? + key.len();
     let rest = &json[start..];
-    let number = rest
+    let digits = rest
         .chars()
-        .take_while(|char| char.is_ascii_digit() || *char == '.')
+        .take_while(|char| char.is_ascii_digit())
         .collect::<String>();
 
-    number.parse().ok()
+    digits.parse().ok()
 }
+
 
 fn read_json_string(value: &str) -> Option<String> {
     let mut result = String::new();
@@ -514,7 +569,7 @@ fn read_json_string(value: &str) -> Option<String> {
     None
 }
 
-fn matches_host_rule(host: &str, rule: &str) -> bool {
+pub fn matches_host_rule(host: &str, rule: &str) -> bool {
     let host = strip_www(&host.to_lowercase());
     let clean_rule = strip_www(&rule.to_lowercase());
 
@@ -543,7 +598,7 @@ fn matches_host_rule(host: &str, rule: &str) -> bool {
     host == clean_rule || host.ends_with(&format!(".{}", clean_rule))
 }
 
-fn strip_www(host: &str) -> String {
+pub fn strip_www(host: &str) -> String {
     host.strip_prefix("www.").unwrap_or(host).trim().to_string()
 }
 
@@ -566,14 +621,26 @@ fn post_json(endpoint: &str, body: &str) -> io::Result<String> {
     let mut response = String::new();
     stream.read_to_string(&mut response)?;
 
-    Ok(response
-        .split("\r\n\r\n")
+    let header_end = response.find("\r\n\r\n").unwrap_or(response.len());
+    let status_line = response.lines().next().unwrap_or("");
+
+    let status_code = status_line
+        .split_whitespace()
         .nth(1)
-        .unwrap_or(response.as_str())
-        .to_string())
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(0);
+
+    if status_code != 200 {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("HTTP {}: {}", status_line, status_code),
+        ));
+    }
+
+    Ok(response[header_end..].trim().to_string())
 }
 
-fn parse_http_endpoint(endpoint: &str) -> io::Result<(String, u16, String)> {
+pub fn parse_http_endpoint(endpoint: &str) -> io::Result<(String, u16, String)> {
     let without_scheme = endpoint.strip_prefix("http://").ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "only http endpoints are supported")
     })?;
@@ -598,7 +665,18 @@ fn parse_http_endpoint(endpoint: &str) -> io::Result<(String, u16, String)> {
 
 #[cfg(windows)]
 fn capture_screen_thumbnail_base64() -> Option<String> {
-    None
+    use crate::screenshot::ScreenshotCapture;
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    
+    let capture = ScreenshotCapture::default();
+    match capture.capture_current_window() {
+        Ok(image_data) => Some(STANDARD.encode(&image_data)),
+        Err(e) => {
+            eprintln!("截图失败: {}", e);
+            None
+        }
+    }
 }
 
 #[cfg(not(windows))]
