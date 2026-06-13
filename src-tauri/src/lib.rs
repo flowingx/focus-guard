@@ -647,7 +647,7 @@ fn post_json(endpoint: &str, body: &str) -> io::Result<String> {
         path,
         host,
         port,
-        body.as_bytes().len(),
+        body.len(),
         body
     );
     stream.write_all(request.as_bytes())?;
@@ -665,8 +665,7 @@ fn post_json(endpoint: &str, body: &str) -> io::Result<String> {
         .unwrap_or(0);
 
     if status_code != 200 {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
+        return Err(io::Error::other(
             format!("HTTP {}: {}", status_line, status_code),
         ));
     }
