@@ -1,6 +1,5 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use focus_guard_desktop::{
     capture_screen_thumbnail_base64, classify_context, read_foreground_window, AiContext,
@@ -20,7 +19,6 @@ fn main() {
         let Ok(mut stream) = stream else {
             continue;
         };
-        let peer = stream.peer_addr().ok();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
 
         let mut request_line = String::new();
@@ -29,7 +27,6 @@ fn main() {
         }
 
         let mut content_length: usize = 0;
-        let mut body_start = Vec::new();
         loop {
             let mut header = String::new();
             if reader.read_line(&mut header).is_err() {
@@ -69,16 +66,13 @@ fn main() {
                 );
                 ("200 OK", body_json)
             }
-            ("POST", "/detect") => {
-                match handle_detect(&body, content_length) {
-                    Ok(json) => ("200 OK", json),
-                    Err(e) => {
-                        let err_json =
-                            format!(r#"{{"error":"{}"}}"#, json_esc(&e));
-                        ("500 Internal Server Error", err_json)
-                    }
+            ("POST", "/detect") => match handle_detect() {
+                Ok(json) => ("200 OK", json),
+                Err(e) => {
+                    let err_json = format!(r#"{{"error":"{}"}}"#, json_esc(&e));
+                    ("500 Internal Server Error", err_json)
                 }
-            }
+            },
             _ => ("404 Not Found", r#"{"error":"not_found"}"#.to_string()),
         };
 
@@ -90,7 +84,7 @@ fn main() {
     }
 }
 
-fn handle_detect(body: &[u8], content_length: usize) -> Result<String, String> {
+fn handle_detect() -> Result<String, String> {
     let foreground = read_foreground_window().unwrap_or_else(|| {
         focus_guard_desktop::ForegroundWindow {
             process_id: 0,

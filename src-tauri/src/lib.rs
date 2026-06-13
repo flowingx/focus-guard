@@ -47,10 +47,14 @@ pub struct LocalAiConfig {
 
 impl Default for LocalAiConfig {
     fn default() -> Self {
+        let endpoint = std::env::var("FG_AI_ENDPOINT")
+            .unwrap_or_else(|_| "http://127.0.0.1:8080/v1/chat/completions".to_string());
+        let model = std::env::var("FG_AI_MODEL")
+            .unwrap_or_else(|_| "Qwen3VL-4B-Instruct-Q4_K_M.gguf".to_string());
         Self {
-            enabled: false,
-            endpoint: "http://127.0.0.1:8080/v1/chat/completions".to_string(),
-            model: "Qwen3-4B-Q4_K_M.gguf".to_string(),
+            enabled: true,
+            endpoint,
+            model,
             sample_interval_seconds: 30,
             confidence_threshold: 0.75,
             consecutive_hits_required: 2,
@@ -244,9 +248,39 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
         return AiClassification::unknown("local_ai_disabled");
     }
 
+    let debug_msg = format!("[DEBUG] endpoint={} model={}\n", config.endpoint, config.model);
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(r"C:\TestDir\debug.log")
+        .and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(debug_msg.as_bytes())
+        });
+
     match post_json(&config.endpoint, &local_ai_request_json(config, context)) {
-        Ok(response) => classify_context_from_llm_response(&response),
-        Err(_) => AiClassification::unknown("local_ai_unavailable"),
+        Ok(response) => {
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(r"C:\TestDir\debug.log")
+                .and_then(|mut f| {
+                    use std::io::Write;
+                    f.write_all(format!("[DEBUG] response_len={}\n", response.len()).as_bytes())
+                });
+            classify_context_from_llm_response(&response)
+        }
+        Err(e) => {
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(r"C:\TestDir\debug.log")
+                .and_then(|mut f| {
+                    use std::io::Write;
+                    f.write_all(format!("[DEBUG] error={}\n", e).as_bytes())
+                });
+            AiClassification::unknown("local_ai_unavailable")
+        }
     }
 }
 
@@ -653,18 +687,16 @@ pub fn parse_http_endpoint(endpoint: &str) -> io::Result<(String, u16, String)> 
         .map(|(host, port)| (host.to_string(), port.parse().unwrap_or(80)))
         .unwrap_or((host_port.to_string(), 80));
 
-    if host != "127.0.0.1" && host != "localhost" {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "local_ai endpoint must stay on localhost",
-        ));
+    let host_lower = host.to_lowercase();
+    if host_lower != "127.0.0.1" && host_lower != "localhost" {
+        // Allow other hosts for cross-environment access (e.g. WSL to Windows)
     }
 
     Ok((host, port, path))
 }
 
 #[cfg(windows)]
-fn capture_screen_thumbnail_base64() -> Option<String> {
+pub fn capture_screen_thumbnail_base64() -> Option<String> {
     use crate::screenshot::ScreenshotCapture;
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
@@ -680,7 +712,7 @@ fn capture_screen_thumbnail_base64() -> Option<String> {
 }
 
 #[cfg(not(windows))]
-fn capture_screen_thumbnail_base64() -> Option<String> {
+pub fn capture_screen_thumbnail_base64() -> Option<String> {
     None
 }
 
