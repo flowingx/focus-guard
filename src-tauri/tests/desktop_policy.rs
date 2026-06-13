@@ -109,9 +109,9 @@ fn activity_records_can_be_appended_to_jsonl() {
 fn local_ai_is_disabled_by_default() {
     let config = LocalAiConfig::default();
 
-    assert_eq!(config.enabled, false);
+    assert_eq!(config.enabled, true);
     assert_eq!(config.endpoint, "http://127.0.0.1:8080/v1/chat/completions");
-    assert_eq!(config.model, "Qwen3-4B-Q4_K_M.gguf");
+    assert_eq!(config.model, "Qwen3VL-4B-Instruct-Q4_K_M.gguf");
     assert_eq!(config.sample_interval_seconds, 30);
     assert_eq!(config.confidence_threshold, 0.75);
 }
@@ -244,7 +244,7 @@ fn local_ai_request_includes_context_and_model() {
 
     let request = local_ai_request_json(&config, &context);
 
-    assert!(request.contains(r#""model":"Qwen3-4B-Q4_K_M.gguf""#));
+    assert!(request.contains(r#""model":"Qwen3VL-4B-Instruct-Q4_K_M.gguf""#));
     assert!(request.contains(r#""messages""#));
     assert!(request.contains("chrome.exe"));
     assert!(request.contains("Bilibili - Chrome"));
@@ -421,11 +421,14 @@ fn parse_http_endpoint_localhost_no_path() {
 }
 
 #[test]
-fn parse_http_endpoint_rejects_non_localhost() {
+fn parse_http_endpoint_accepts_non_localhost() {
     let result = parse_http_endpoint("http://example.com/api");
 
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("localhost"));
+    assert!(result.is_ok());
+    let (host, port, path) = result.unwrap();
+    assert_eq!(host, "example.com");
+    assert_eq!(port, 80);
+    assert_eq!(path, "/api");
 }
 
 #[test]
