@@ -121,6 +121,29 @@ src-tauri/          Rust 后端
 tests/              JS 测试（node:test）
 ```
 
+## 构建发布
+
+### 本地构建
+```powershell
+cargo build --manifest-path src-tauri/Cargo.toml --release
+# 产物: src-tauri/target/release/focus-guard-server.exe
+```
+
+### GitHub Actions 自动构建
+推送 `v*` 标签自动触发 Windows 构建，产物为 `focus-guard-windows-x64.zip`：
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+## 调试
+
+详见 `AGENTS.md` 的调试章节，包含：
+- 快速诊断清单（AI/截图/端口转发/扩展）
+- 手动测试端点命令
+- 环境变量配置
+- WSL↔Windows 调试流程
+
 ## 注意事项
 
 - Win32 API 截图只在 Windows 上可用
