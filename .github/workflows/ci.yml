@@ -26,11 +26,9 @@ jobs:
     - name: Run JavaScript tests
       run: npm test
 
-    - name: Set up Rust
-      uses: actions-rs/toolchain@v1
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: stable
-        override: true
         components: rustfmt, clippy
 
     - name: Cache Rust dependencies
