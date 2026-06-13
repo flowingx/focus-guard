@@ -46,7 +46,7 @@ fn main() {
             let _ = reader.read_exact(&mut body);
         }
 
-        let parts: Vec<&str> = request_line.trim().split_whitespace().collect();
+        let parts: Vec<&str> = request_line.split_whitespace().collect();
         let method = parts.first().copied().unwrap_or("");
         let path = parts.get(1).copied().unwrap_or("/");
 
