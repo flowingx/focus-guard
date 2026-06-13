@@ -1,0 +1,64 @@
+name: Build & Release Windows Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.1.0)'
+        required: false
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build release binaries
+        run: cargo build --manifest-path src-tauri/Cargo.toml --release
+
+      - name: Create distribution directory
+        run: |
+          mkdir dist
+          copy src-tauri\target\release\focus-guard-server.exe dist\
+          copy src-tauri\target\release\focus-guard-native-host.exe dist\
+          copy -Recurse extension dist\extension
+          copy -Recurse desktop dist\desktop
+          copy README.md dist\
+          copy AI-CONFIG.md dist\
+
+      - name: Create zip archive
+        run: Compress-Archive -Path dist\* -DestinationPath focus-guard-windows-x64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: focus-guard-windows-x64
+          path: focus-guard-windows-x64.zip
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: focus-guard-windows-x64.zip
+          generate_release_notes: true
