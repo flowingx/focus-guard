@@ -128,6 +128,10 @@ document.getElementById("test-local-ai").addEventListener("click", async () => {
   await testLocalAi();
 });
 
+document.getElementById("detect-now").addEventListener("click", async () => {
+  await detectProcrastination();
+});
+
 function setupInlineInput(config) {
   const { addBtnId, inputRowId, inputId, confirmId, cancelId, placeholder, onAdd } = config;
   const addBtn = document.getElementById(addBtnId);
@@ -398,6 +402,114 @@ async function testLocalAi() {
 
   saveState();
   renderLocalAiStatus();
+}
+
+async function detectProcrastination() {
+  const resultBox = document.getElementById("detect-result");
+  resultBox.classList.remove("hidden");
+  resultBox.className = "detect-result";
+  resultBox.innerHTML = `
+    <div class="detect-loading">
+      <div class="spinner"></div>
+      <span>正在截图分析当前桌面...</span>
+    </div>
+  `;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    const response = await fetch("http://127.0.0.1:3001/detect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+
+    if (result.error) {
+      resultBox.className = "detect-result warn";
+      resultBox.innerHTML = `
+        <div class="detect-card">
+          <div class="detect-icon warn">⚠️</div>
+          <div class="detect-info">
+            <strong>检测失败</strong>
+            <p class="detect-reason">${escapeHtml(result.error)}</p>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const isDistracting =
+      result.category === "distracting" || result.category === "distraction";
+    const confidence = Math.round((result.confidence || 0) * 100);
+    const windowInfo = result.process_name
+      ? `${result.process_name} — ${result.window_title}`
+      : "";
+
+    if (isDistracting) {
+      resultBox.className = "detect-result danger";
+      resultBox.innerHTML = `
+        <div class="detect-card">
+          <div class="detect-icon danger">🚨</div>
+          <div class="detect-info">
+            <strong>检测到摸鱼行为</strong>
+            <p class="detect-reason">${escapeHtml(result.reason || "")}</p>
+            <div class="detect-meta">
+              <span class="tag tag-danger">${escapeHtml(result.category)}</span>
+              <span>置信度: ${confidence}%</span>
+              <span>建议: ${result.suggested_action === "intent_required" ? "需要输入意图" : "观察中"}</span>
+            </div>
+            ${windowInfo ? `<p class="detect-window">${escapeHtml(windowInfo)}</p>` : ""}
+            ${result.has_screenshot ? `<p class="detect-hint">截图已发送给 AI 分析 (${result.screenshot_bytes} bytes base64)</p>` : ""}
+          </div>
+        </div>
+      `;
+    } else {
+      resultBox.className = "detect-result ok";
+      resultBox.innerHTML = `
+        <div class="detect-card">
+          <div class="detect-icon ok">✅</div>
+          <div class="detect-info">
+            <strong>专注状态正常</strong>
+            <p class="detect-reason">${escapeHtml(result.reason || "")}</p>
+            <div class="detect-meta">
+              <span class="tag tag-ok">${escapeHtml(result.category)}</span>
+              <span>置信度: ${confidence}%</span>
+            </div>
+            ${windowInfo ? `<p class="detect-window">${escapeHtml(windowInfo)}</p>` : ""}
+            ${result.has_screenshot ? `<p class="detect-hint">截图已发送给 AI 分析 (${result.screenshot_bytes} bytes base64)</p>` : ""}
+          </div>
+        </div>
+      `;
+    }
+  } catch (error) {
+    const msg =
+      error.name === "AbortError"
+        ? "请求超时，focus-guard-server 可能未运行"
+        : error.message?.includes("fetch")
+          ? "无法连接 focus-guard-server，请先在 Windows 上运行: cargo run --bin focus-guard-server"
+          : error.message || "未知错误";
+
+    resultBox.className = "detect-result warn";
+    resultBox.innerHTML = `
+      <div class="detect-card">
+        <div class="detect-icon warn">⚠️</div>
+        <div class="detect-info">
+          <strong>AI 服务不可用</strong>
+          <p class="detect-reason">${escapeHtml(msg)}</p>
+          <p class="detect-hint">确保 focus-guard-server 在 Windows 上运行（端口 3001），且 llama-server 在 WSL 端口 8080 运行</p>
+        </div>
+      </div>
+    `;
+  }
 }
 
 function parseAnalysisResult(text) {

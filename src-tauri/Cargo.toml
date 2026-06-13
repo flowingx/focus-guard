@@ -11,6 +11,10 @@ path = "src/lib.rs"
 name = "focus-guard-native-host"
 path = "src/bin/native_host.rs"
 
+[[bin]]
+name = "focus-guard-server"
+path = "src/bin/server.rs"
+
 [dependencies]
 reqwest = { version = "0.11", features = ["json"] }
 base64 = "0.21"

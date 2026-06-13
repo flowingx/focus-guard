@@ -169,7 +169,13 @@ function showUnknownSitePrompt(message) {
   shadow.querySelector(".target").textContent = message.originalUrl ?? message.target ?? "";
   function removeWithAnimation() {
     host.style.animation = "slideOut 200ms ease forwards";
-    host.addEventListener("animationend", () => host.remove(), { once: true });
+    const onEnd = () => {
+      host.remove();
+    };
+    host.addEventListener("animationend", onEnd, { once: true });
+    setTimeout(() => {
+      host.remove();
+    }, 300);
   }
 
   shadow.querySelectorAll("[data-close]").forEach((button) => {

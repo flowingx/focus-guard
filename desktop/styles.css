@@ -381,3 +381,152 @@ input[type="number"]:focus {
     color: #191a22;
   }
 }
+
+.btn-primary {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.btn-primary:hover {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+.detect-result {
+  margin-top: 14px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  animation: slideUp 0.3s ease;
+}
+
+.detect-result.hidden {
+  display: none;
+}
+
+.detect-result.ok {
+  border-color: var(--good);
+  background: color-mix(in srgb, var(--good) 8%, var(--surface));
+}
+
+.detect-result.danger {
+  border-color: #dc2626;
+  background: color-mix(in srgb, #dc2626 8%, var(--surface));
+}
+
+.detect-result.warn {
+  border-color: #f59e0b;
+  background: color-mix(in srgb, #f59e0b 8%, var(--surface));
+}
+
+.detect-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.detect-icon {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.detect-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.detect-info strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+
+.detect-reason {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.detect-meta {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tag {
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.tag-danger {
+  background: #dc2626;
+  color: white;
+}
+
+.tag-ok {
+  background: var(--good);
+  color: white;
+}
+
+.detect-raw {
+  margin: 8px 0 0;
+  padding: 8px;
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.detect-window {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-family: "Cascadia Mono", "Consolas", monospace;
+}
+
+.detect-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.detect-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
