@@ -1,0 +1,158 @@
+#focus-guard-interference-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 2147483647;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  animation: fg-fade-in 0.3s ease;
+}
+
+@keyframes fg-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#focus-guard-interference-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 40px;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  text-align: center;
+}
+
+#focus-guard-interference-card h2 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+#focus-guard-interference-card p {
+  margin: 0 0 24px;
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+}
+
+#focus-guard-interference-card .fg-reason-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 10px;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+#focus-guard-interference-card .fg-reason-input:focus {
+  border-color: #2563eb;
+}
+
+#focus-guard-interference-card .fg-btn-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+#focus-guard-interference-card .fg-btn {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+#focus-guard-interference-card .fg-btn:hover {
+  opacity: 0.85;
+}
+
+#focus-guard-interference-card .fg-btn-primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+#focus-guard-interference-card .fg-btn-danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+#focus-guard-interference-card .fg-btn-ghost {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+#focus-guard-interference-card .fg-preset-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  justify-content: center;
+}
+
+#focus-guard-interference-card .fg-preset-tag {
+  padding: 6px 14px;
+  background: #f0f4ff;
+  color: #2563eb;
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid #dbeafe;
+  transition: all 0.15s;
+}
+
+#focus-guard-interference-card .fg-preset-tag:hover {
+  background: #dbeafe;
+}
+
+#focus-guard-interference-card .fg-ai-status {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #999;
+  min-height: 20px;
+}
+
+#focus-guard-interference-card .fg-ai-status.fg-rejected {
+  color: #ef4444;
+}
+
+#focus-guard-interference-card .fg-ai-status.fg-approved {
+  color: #22c55e;
+}
+
+@media (prefers-color-scheme: dark) {
+  #focus-guard-interference-card {
+    background: #1e1e1e;
+  }
+  #focus-guard-interference-card h2 {
+    color: #f0f0f0;
+  }
+  #focus-guard-interference-card p {
+    color: #999;
+  }
+  #focus-guard-interference-card .fg-reason-input {
+    background: #2a2a2a;
+    border-color: #444;
+    color: #f0f0f0;
+  }
+  #focus-guard-interference-card .fg-btn-ghost {
+    background: #333;
+    color: #ccc;
+  }
+  #focus-guard-interference-card .fg-preset-tag {
+    background: #1e2a3a;
+    border-color: #2a3a5a;
+  }
+}

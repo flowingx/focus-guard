@@ -39,6 +39,7 @@ pub struct LocalAiConfig {
     pub enabled: bool,
     pub endpoint: String,
     pub model: String,
+    pub api_key: String,
     pub sample_interval_seconds: u32,
     pub confidence_threshold: f32,
     pub consecutive_hits_required: u32,
@@ -51,10 +52,12 @@ impl Default for LocalAiConfig {
             .unwrap_or_else(|_| "http://127.0.0.1:8080/v1/chat/completions".to_string());
         let model = std::env::var("FG_AI_MODEL")
             .unwrap_or_else(|_| "Qwen3VL-4B-Instruct-Q4_K_M.gguf".to_string());
+        let api_key = std::env::var("FG_AI_API_KEY").unwrap_or_default();
         Self {
             enabled: true,
             endpoint,
             model,
+            api_key,
             sample_interval_seconds: 30,
             confidence_threshold: 0.75,
             consecutive_hits_required: 2,
@@ -258,7 +261,7 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
             f.write_all(debug_msg.as_bytes())
         });
 
-    match post_json(&config.endpoint, &local_ai_request_json(config, context)) {
+    match post_json_with_key(&config.endpoint, &local_ai_request_json(config, context), &config.api_key) {
         Ok(response) => {
             let _ = std::fs::OpenOptions::new()
                 .create(true)
@@ -291,10 +294,10 @@ pub fn local_ai_request_json(config: &LocalAiConfig, context: &AiContext) -> Str
         &context.window_title
     };
     let user_content = format!(
-        "Process: {}. Window title: {}.",
+        "Full desktop screenshot. Active process: {}. Window title: {}. Analyze ALL visible content on screen, not just the active window.",
         context.process_name, title
     );
-    let system_msg = "/no_think\nYou are Focus Guard, a local-only desktop activity classifier. Classify the current Windows foreground context. Return JSON only with fields category, confidence, reason. Allowed category values: study, work, entertainment, distracting, unknown. Use distracting only when the user is likely killing time. Never include markdown or prose.";
+    let system_msg = "/no_think\nYou are Focus Guard, a strict focus assistant analyzing a FULL DESKTOP SCREENSHOT. CRITICAL RULES:\n1. Look at the ENTIRE screen - every pixel matters, not just the largest window.\n2. If you see ANY video site (bilibili, youtube, douyin, tiktok, netflix, twitch, gaming content, live streams), classify as \"distracting\" regardless of what else is visible.\n3. If you see social media feeds, short videos, gaming, entertainment - classify as \"distracting\" or \"entertainment\".\n4. Split screen with entertainment on ANY side = distracting.\n5. Only classify as \"study\" if the ENTIRE screen shows educational/productive content.\n6. Only classify as \"work\" if the ENTIRE screen shows work-related applications.\nCommon distracting sites to watch for: bilibili.com, youtube.com, douyin.com, tiktok.com, netflix.com, twitch.tv, x.com, weibo.com, zhihu.com (non-study).\nReturn JSON: {\"category\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"...\"}\nCategories: study, work, entertainment, distracting, unknown.";
 
     let content_array = if let Some(image) = &context.screenshot_base64 {
         format!(
@@ -636,17 +639,49 @@ pub fn strip_www(host: &str) -> String {
     host.strip_prefix("www.").unwrap_or(host).trim().to_string()
 }
 
-fn post_json(endpoint: &str, body: &str) -> io::Result<String> {
+pub fn classify_context_from_llm_response_raw(request_json: &str) -> Result<String, String> {
+    let config = LocalAiConfig::default();
+    let response = post_json_with_key(&config.endpoint, request_json, &config.api_key)
+        .map_err(|e| format!("request failed: {}", e))?;
+    let model_text = match serde_json::from_str::<serde_json::Value>(&response) {
+        Ok(v) => {
+            if let Some(content) = v
+                .get("choices")
+                .and_then(|c| c.get(0))
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_str())
+            {
+                content.to_string()
+            } else if let Some(response) = v.get("response").and_then(|r| r.as_str()) {
+                response.to_string()
+            } else {
+                response.trim().to_string()
+            }
+        }
+        Err(_) => response.trim().to_string(),
+    };
+    Ok(model_text)
+}
+
+fn post_json_with_key(endpoint: &str, body: &str, api_key: &str) -> io::Result<String> {
     let (host, port, path) = parse_http_endpoint(endpoint)?;
     let mut stream = TcpStream::connect((host.as_str(), port))?;
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_read_timeout(Some(Duration::from_secs(90)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(90)))?;
+
+    let auth_header = if api_key.is_empty() {
+        String::new()
+    } else {
+        format!("Authorization: Bearer {}\r\n", api_key)
+    };
 
     let request = format!(
-        "POST {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "POST {} HTTP/1.1\r\nHost: {}:{}\r\nContent-Type: application/json\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
         path,
         host,
         port,
+        auth_header,
         body.len(),
         body
     );

@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
-use windows::Win32::Foundation::*;
 use image::{ImageBuffer, Rgba};
 
 pub struct ScreenshotCapture {
@@ -18,26 +17,19 @@ impl ScreenshotCapture {
 
     pub fn capture_current_window(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         unsafe {
-            let hwnd = GetForegroundWindow();
-            if hwnd.0 == 0 {
-                return Err("无法获取前台窗口".into());
+            let hdc_screen = GetDC(None);
+            if hdc_screen.0 == 0 {
+                return Err("获取屏幕DC失败".into());
             }
 
-            let mut title_buf = [0u16; 256];
-            let title_len = GetWindowTextW(hwnd, &mut title_buf);
-            let _title = String::from_utf16_lossy(&title_buf[..title_len as usize]);
-
-            let mut rect = RECT::default();
-            GetWindowRect(hwnd, &mut rect)?;
-
-            let width = rect.right - rect.left;
-            let height = rect.bottom - rect.top;
+            let width = GetSystemMetrics(SM_CXSCREEN);
+            let height = GetSystemMetrics(SM_CYSCREEN);
 
             if width <= 0 || height <= 0 {
-                return Err("窗口尺寸无效".into());
+                ReleaseDC(None, hdc_screen);
+                return Err("屏幕尺寸无效".into());
             }
 
-            let hdc_screen = GetDC(None);
             let hdc_mem = CreateCompatibleDC(hdc_screen);
             let hbitmap = CreateCompatibleBitmap(hdc_screen, width, height);
 
@@ -56,8 +48,8 @@ impl ScreenshotCapture {
                 width,
                 height,
                 hdc_screen,
-                rect.left,
-                rect.top,
+                0,
+                0,
                 SRCCOPY,
             );
 

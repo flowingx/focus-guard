@@ -1,6 +1,6 @@
 # Focus Guard 专注守门员
 
-Windows 为核心的专注守护应用。Chrome/Edge 扩展 + Rust 后端 + 本地 AI 截图分析，检测摸鱼行为并弹窗提醒。
+Windows 为核心的专注守护应用。Chrome/Edge 扩展 + Rust 后端 + AI 截图分析，检测摸鱼行为并强制弹窗提醒。
 
 ## 系统架构
 
@@ -9,10 +9,23 @@ Chrome/Edge 扩展  ◄──Native Messaging──►  focus-guard-native-host 
                                                   │
                                           focus-guard-server (Rust, HTTP :3001)
                                                   │
-                                          Win32 API 截图 → AI 分析
+                                          Win32 API 全桌面截图 → AI 分析
                                                   │
-                                          llama-server (WSL/Linux, HTTP :8080)
+                              ┌────────────────────┼────────────────────┐
+                              │                    │                    │
+                      本地 llama.cpp         远程 API (OpenAI      远程 API (DeepSeek
+                      (WSL/Linux :8080)      Anthropic 等)         等中转站)
 ```
+
+## 功能特性
+
+- **全桌面截图分析** — 2560×1440 全分辨率截图，DPI 自适应
+- **多供应商 AI** — 支持本地 llama.cpp + 远程 API（OpenAI 格式）
+- **智能配置解析** — 粘贴 curl 命令自动提取 API 地址和密钥
+- **供应商管理** — 多供应商卡片展示，自动测试排序，一键切换
+- **强制干预** — AI 检测到摸鱼时弹出全屏遮罩，验证理由后决定放行或关闭页面
+- **定时轮询 + 中断触发** — 扩展在页面加载时和每 5 分钟自动检测
+- **深色模式** — 支持手动切换（浅色/深色/跟随系统）
 
 ## 快速启动
 
@@ -24,74 +37,95 @@ Chrome/Edge 扩展  ◄──Native Messaging──►  focus-guard-native-host 
 - Chrome/Edge 浏览器
 - WSL 或 Linux（运行 AI 模型）
 
-### 第一步：启动 AI 模型服务（WSL/Linux）
+### 第一步：下载 AI 模型
 
 ```bash
-# 下载 llama.cpp 预编译二进制（或从源码编译）
-# https://github.com/ggerganov/llama.cpp/releases
+# 在 WSL 中创建模型目录
+mkdir -p ~/models
 
-# 启动视觉模型服务
-llama-server \
-  --model /path/to/Qwen3VL-4B-Instruct-Q4_K_M.gguf \
-  --mmproj /path/to/mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf \
-  --host 127.0.0.1 \
-  --port 8080 \
-  --ctx-size 4096
+# 下载 Qwen3VL-4B 视觉模型（约 2.5GB）
+cd ~/models
+wget https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF/resolve/main/Qwen3VL-4B-Instruct-Q4_K_M.gguf
 
+# 下载对应的 mmproj 文件（约 750MB）
+wget https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf
+
+# 如果下载慢，可以用 huggingface-cli：
+# pip install huggingface_hub
+# huggingface-cli download Qwen/Qwen3-VL-4B-Instruct-GGUF Qwen3VL-4B-Instruct-Q4_K_M.gguf mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf --local-dir ~/models
+```
+
+### 第二步：启动 AI 模型服务
+
+#### 方式 A：CPU 模式（简单，不需要 CUDA）
+
+```bash
+cd ~/llama-cpp/llama-b9616
+LD_LIBRARY_PATH=. ./llama-server \
+  --model ~/models/Qwen3VL-4B-Instruct-Q4_K_M.gguf \
+  --mmproj ~/models/mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf \
+  --host 127.0.0.1 --port 8080 --ctx-size 4096
+```
+
+#### 方式 B：GPU 模式（需要 CUDA 编译的 llama.cpp）
+
+```bash
+# 如果还没有 CUDA 版本，需要从源码编译：
+cd /tmp
+git clone --depth 1 https://github.com/ggml-org/llama.cpp.git llama-cuda-build
+cd llama-cuda-build
+cmake -B build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DCUDAToolkit_ROOT=/usr/local/cuda-12.6
+cmake --build build --target llama-server -j$(nproc)
+
+# 启动（-ngl 99 = 所有层卸载到 GPU）
+LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64:build/bin \
+  build/bin/llama-server \
+  --model ~/models/Qwen3VL-4B-Instruct-Q4_K_M.gguf \
+  --mmproj ~/models/mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf \
+  --host 127.0.0.1 --port 8080 --ctx-size 4096 -ngl 99
+```
+
+```bash
 # 验证服务
 curl http://127.0.0.1:8080/v1/models
 ```
 
-### 第二步：构建并运行 Rust 服务（Windows）
+### 第三步：构建 Rust 服务（Windows）
 
 ```bash
-# 构建两个二进制
 cargo build --manifest-path src-tauri/Cargo.toml --release
 
-# 运行 HTTP 截图分析服务（端口 3001）
+# 运行服务
 cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-server --release
-
-# 另一个终端：运行原生消息主机（供扩展通信）
 cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-native-host --release
 ```
 
-### 第三步：加载 Chrome/Edge 扩展
+### 第四步：加载 Chrome/Edge 扩展
 
 1. 打开 `chrome://extensions`
 2. 开启「开发者模式」
-3. 点击「加载已解压的扩展程序」，选择项目中的 `extension/` 文件夹
-4. （可选）注册原生消息主机以启用扩展↔Rust 通信
+3. 点击「加载已解压的扩展程序」，选择 `extension/` 文件夹
 
-### 第四步：打开桌面 UI
+### 第五步：打开桌面 UI
 
 ```bash
-# 用 Python 启动静态文件服务
 python3 -m http.server 3000 --bind 0.0.0.0 --directory desktop/
-
-# 浏览器打开
-# http://localhost:3000
+# 浏览器打开 http://localhost:3000
 ```
 
-### 第五步：测试摸鱼检测
+### 第六步：配置 AI 供应商
 
-1. 在桌面 UI 中点击「检测摸鱼」按钮
-2. focus-guard-server 会通过 Win32 API 截取当前前台窗口
-3. 截图发送给 AI 分析，返回分类结果
-4. 摸鱼时显示 🚨 警告，专注时显示 ✅ 正常
+1. 在桌面 UI 中点击「📋 粘贴配置」
+2. 粘贴 curl 命令或 API 配置，系统自动识别
+3. 或点击「+ 添加供应商」手动填写 Base URL 和 API Key
+4. 点击「全部测试排序」自动选择最快的供应商
 
 ## 二进制说明
 
 | 二进制 | 作用 | 端口 |
 |--------|------|------|
-| `focus-guard-server` | HTTP 截图分析服务，桌面 UI 调用 | 3001 |
-| `focus-guard-native-host` | Chrome 原生消息主机，扩展通信 | stdin/stdout |
-
-## AI 配置
-
-- 端点：`http://127.0.0.1:8080/v1/chat/completions`
-- 模型名：`Qwen3VL-4B-Instruct-Q4_K_M.gguf`（视觉模型）
-- 系统提示必须以 `/no_think` 开头（防止 Qwen3 thinking 模式消耗所有 token）
-- 详细故障排查见 `AI-CONFIG.md`
+| `focus-guard-server` | HTTP 截图分析服务 | 3001 (0.0.0.0) |
+| `focus-guard-native-host` | Chrome 原生消息主机 | stdin/stdout |
 
 ## 测试
 
@@ -109,43 +143,46 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ## 目录结构
 
 ```
-extension/          Chrome/Edge 扩展（Manifest V3）
-desktop/            桌面 UI（HTML/JS/CSS）
-shared/policy.js    共享策略逻辑（域名匹配、意图会话）
-src-tauri/          Rust 后端
-  src/lib.rs        核心逻辑（策略、AI、截图）
-  src/screenshot.rs Win32 API 截图
-  src/ai_analyzer.rs AI 分析器
-  src/bin/server.rs HTTP 截图分析服务
+extension/              Chrome/Edge 扩展（Manifest V3）
+  background.js         服务脚本（策略、AI 检测、强制干预）
+  interference.js       强制干预遮罩逻辑
+  interference.css      遮罩样式（支持深色模式）
+desktop/                桌面 UI（HTML/JS/CSS）
+  app.js                主逻辑（供应商管理、深色模式）
+  styles.css            样式（Claude/macOS 风格）
+shared/policy.js        共享策略逻辑（域名匹配、意图会话）
+src-tauri/              Rust 后端
+  src/lib.rs            核心逻辑（策略、AI、截图）
+  src/screenshot.rs     Win32 API 全桌面截图（DPI 感知）
+  src/bin/server.rs     HTTP 服务（多供应商管理、配置解析）
   src/bin/native_host.rs 原生消息主机
-tests/              JS 测试（node:test）
+tests/                  JS 测试（node:test）
 ```
 
 ## 构建发布
 
-### 本地构建
-```powershell
-cargo build --manifest-path src-tauri/Cargo.toml --release
-# 产物: src-tauri/target/release/focus-guard-server.exe
-```
-
-### GitHub Actions 自动构建
-推送 `v*` 标签自动触发 Windows 构建，产物为 `focus-guard-windows-x64.zip`：
 ```bash
+# 本地构建
+cargo build --manifest-path src-tauri/Cargo.toml --release
+
+# GitHub Actions 自动构建（推送 v* 标签触发）
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-## 调试
+## 环境变量
 
-详见 `AGENTS.md` 的调试章节，包含：
-- 快速诊断清单（AI/截图/端口转发/扩展）
-- 手动测试端点命令
-- 环境变量配置
-- WSL↔Windows 调试流程
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `FG_AI_ENDPOINT` | `http://127.0.0.1:8080/v1/chat/completions` | AI 服务地址 |
+| `FG_AI_MODEL` | `Qwen3VL-4B-Instruct-Q4_K_M.gguf` | 模型名称 |
+| `FG_AI_API_KEY` | (空) | API Key |
+| `FG_SERVER_PORT` | `3001` | 截图服务端口 |
 
 ## 注意事项
 
 - Win32 API 截图只在 Windows 上可用
-- AI 模型需要 GPU 或大内存（4B 模型约需 1.4GB RAM）
+- 本地 AI 模型需要 GPU 或大内存（4B 模型约需 4GB 显存或 14GB 内存）
 - 扩展的白名单/高风险域名列表在 `shared/policy.js` 和 Rust `lib.rs` 中各有一份，修改时需同步
+- AI 系统提示必须以 `/no_think` 开头（防止 Qwen3 thinking 模式消耗所有 token）
+- 供应商配置保存在 `AppData\Local\FocusGuard\providers.json`
