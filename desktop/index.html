@@ -80,15 +80,15 @@
           </label>
         </div>
 
-        <div class="settings-grid" style="margin-top:16px">
+        <div class="settings-grid" style="margin-top:16px; display:none" id="api-key-row">
           <label>
             <span>豆包 API Key</span>
             <input id="pe-api-key" type="password" placeholder="ark-..." />
           </label>
         </div>
         <div class="ai-test-row" style="margin-top:12px">
-          <button id="pe-save-btn" type="button" class="btn-primary">保存</button>
-          <button id="detect-now" type="button">检测摸鱼</button>
+          <button id="pe-save-btn" type="button" class="btn-primary" style="display:none">保存</button>
+          <button id="detect-now" type="button" class="btn-primary">检测摸鱼</button>
           <span id="ai-status-dot" class="status-dot"></span>
           <span id="local-ai-status" class="pill muted-pill">未连接</span>
         </div>

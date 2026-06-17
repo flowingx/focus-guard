@@ -143,9 +143,9 @@ async function loadApiKey() {
   try {
     const resp = await fetch(`${SERVER}/config`);
     const data = await resp.json();
-    const keyInput = document.getElementById("pe-api-key");
-    if (keyInput && data.hasApiKey) {
-      keyInput.value = "••••••••";
+    if (!data.hasApiKey) {
+      document.getElementById("api-key-row").style.display = "";
+      document.getElementById("pe-save-btn").style.display = "";
     }
     renderLocalAiStatus();
   } catch {}
@@ -507,6 +507,11 @@ async function detectProcrastination() {
     const result = await response.json();
 
     if (result.error) {
+      const needsKey = result.error.includes("api_error") || result.error.includes("Unauthorized") || result.error.includes("401") || result.error.includes("invalid_model_json");
+      if (needsKey) {
+        document.getElementById("api-key-row").style.display = "";
+        document.getElementById("pe-save-btn").style.display = "";
+      }
       resultBox.className = "detect-result warn";
       resultBox.innerHTML = `
         <div class="detect-card">
@@ -514,9 +519,7 @@ async function detectProcrastination() {
           <div class="detect-info">
             <strong>AI 分析失败</strong>
             <p class="detect-reason">${escapeHtml(result.error)}</p>
-            <div class="detect-meta">
-              <span class="tag tag-warn">${escapeHtml(result.category || "")}</span>
-            </div>
+            ${needsKey ? '<p class="detect-hint">请在上方输入 API Key 并点击保存</p>' : ""}
             ${result.process_name ? `<p class="detect-window">${escapeHtml(result.process_name)} — ${escapeHtml(result.window_title || "")}</p>` : ""}
             ${result.has_screenshot ? `<p class="detect-hint">截图已捕获 (${result.screenshot_bytes} bytes)，但 AI 返回错误</p>` : ""}
           </div>
@@ -573,8 +576,14 @@ async function detectProcrastination() {
       error.name === "AbortError"
         ? "请求超时，focus-guard-server 可能未运行"
         : error.message?.includes("fetch")
-          ? "无法连接 focus-guard-server，请先在 Windows 上运行: cargo run --bin focus-guard-server"
+          ? "无法连接 focus-guard-server，请先在 Windows 上运行"
           : error.message || "未知错误";
+
+    const needsKey = msg.includes("服务未连接") || msg.includes("无法连接");
+    if (needsKey) {
+      document.getElementById("api-key-row").style.display = "";
+      document.getElementById("pe-save-btn").style.display = "";
+    }
 
     resultBox.className = "detect-result warn";
     resultBox.innerHTML = `
