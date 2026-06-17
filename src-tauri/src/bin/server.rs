@@ -769,7 +769,7 @@ fn handle_detect() -> Result<String, String> {
     let screenshot_len = screenshot_b64.as_ref().map(|s| s.len()).unwrap_or(0);
 
     let result = format!(
-        r#"{{"category":"{}","confidence":{},"reason":"{}","suggested_action":"{}","process_name":"{}","window_title":"{}","has_screenshot":{},"screenshot_bytes":{}}}"#,
+        r#"{{"category":"{}","confidence":{},"reason":"{}","suggested_action":"{}","process_name":"{}","window_title":"{}","has_screenshot":{},"screenshot_bytes":{},"error":{}}}"#,
         json_esc(&classification.category),
         classification.confidence,
         json_esc(&classification.reason),
@@ -778,6 +778,10 @@ fn handle_detect() -> Result<String, String> {
         json_esc(&foreground.window_title),
         screenshot_b64.is_some(),
         screenshot_len,
+        match &classification.error {
+            Some(e) => format!("\"{}\"", json_esc(e)),
+            None => "null".to_string(),
+        }
     );
 
     Ok(result)

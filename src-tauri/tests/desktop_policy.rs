@@ -125,6 +125,7 @@ fn ai_policy_requires_two_consecutive_distracting_hits() {
         confidence: 0.9,
         reason: "short video feed".to_string(),
         suggested_action: "intent_required".to_string(),
+        error: None,
     };
 
     let first = apply_ai_policy(&mut state, "app:Chrome.exe", 1_000, &classification);
@@ -149,6 +150,7 @@ fn ai_policy_ignores_allowlisted_targets_even_when_model_flags_them() {
         confidence: 0.99,
         reason: "video visible".to_string(),
         suggested_action: "intent_required".to_string(),
+        error: None,
     };
 
     assert_eq!(
@@ -171,12 +173,14 @@ fn ai_policy_ignores_low_confidence_and_unknown_categories() {
         confidence: 0.5,
         reason: "maybe entertainment".to_string(),
         suggested_action: "none".to_string(),
+        error: None,
     };
     let unknown = AiClassification {
         category: "unknown".to_string(),
         confidence: 0.95,
         reason: "not enough context".to_string(),
         suggested_action: "none".to_string(),
+        error: None,
     };
 
     assert_eq!(
@@ -198,6 +202,7 @@ fn ai_policy_enters_cooldown_after_triggering() {
         confidence: 0.9,
         reason: "feed browsing".to_string(),
         suggested_action: "intent_required".to_string(),
+        error: None,
     };
 
     let _ = apply_ai_policy(&mut state, "app:Chrome.exe", 1_000, &classification);

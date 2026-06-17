@@ -732,8 +732,13 @@ async function detectProcrastination() {
         <div class="detect-card">
           <div class="detect-icon warn">⚠️</div>
           <div class="detect-info">
-            <strong>检测失败</strong>
+            <strong>AI 分析失败</strong>
             <p class="detect-reason">${escapeHtml(result.error)}</p>
+            <div class="detect-meta">
+              <span class="tag tag-warn">${escapeHtml(result.category || "")}</span>
+            </div>
+            ${result.process_name ? `<p class="detect-window">${escapeHtml(result.process_name)} — ${escapeHtml(result.window_title || "")}</p>` : ""}
+            ${result.has_screenshot ? `<p class="detect-hint">截图已捕获 (${result.screenshot_bytes} bytes)，但 AI 返回错误</p>` : ""}
           </div>
         </div>
       `;

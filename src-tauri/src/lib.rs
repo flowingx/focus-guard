@@ -115,6 +115,7 @@ pub struct AiClassification {
     pub confidence: f32,
     pub reason: String,
     pub suggested_action: String,
+    pub error: Option<String>,
 }
 
 impl AiClassification {
@@ -124,6 +125,7 @@ impl AiClassification {
             confidence: 0.0,
             reason: reason.to_string(),
             suggested_action: "none".to_string(),
+            error: None,
         }
     }
 }
@@ -278,6 +280,16 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
                     use std::io::Write;
                     f.write_all(format!("[DEBUG] response_len={}\n", response.len()).as_bytes())
                 });
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&response) {
+                if let Some(err) = v.get("error") {
+                    let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("API error");
+                    let code = err.get("code").and_then(|c| c.as_str()).unwrap_or("");
+                    return AiClassification {
+                        error: Some(format!("[{}] {}", code, msg)),
+                        ..AiClassification::unknown("api_error")
+                    };
+                }
+            }
             classify_context_from_llm_response(&response)
         }
         Err(e) => {
@@ -289,7 +301,10 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
                     use std::io::Write;
                     f.write_all(format!("[DEBUG] error={}\n", e).as_bytes())
                 });
-            AiClassification::unknown("local_ai_unavailable")
+            AiClassification {
+                error: Some(e.to_string()),
+                ..AiClassification::unknown("local_ai_unavailable")
+            }
         }
     }
 }
@@ -608,6 +623,7 @@ fn parse_ai_classification(json: &str) -> AiClassification {
             .and_then(|a| a.as_str())
             .unwrap_or("none")
             .to_string(),
+        error: None,
     }
 }
 
