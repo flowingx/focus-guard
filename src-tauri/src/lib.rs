@@ -278,7 +278,9 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
                 .open(r"C:\TestDir\debug.log")
                 .and_then(|mut f| {
                     use std::io::Write;
-                    f.write_all(format!("[DEBUG] response_len={}\n", response.len()).as_bytes())
+                    f.write_all(format!("[DEBUG] response_len={}\n", response.len()).as_bytes());
+                    let preview = if response.len() > 500 { &response[..500] } else { &response };
+                    f.write_all(format!("[DEBUG] response_preview={}\n", preview).as_bytes())
                 });
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&response) {
                 if let Some(err) = v.get("error") {
@@ -373,6 +375,15 @@ fn doubao_request_json(config: &LocalAiConfig, user_content: &str, system_msg: &
 
 pub fn classify_context_from_llm_response(response_json: &str) -> AiClassification {
     let model_text = extract_response_text(response_json);
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(r"C:\TestDir\debug.log")
+        .and_then(|mut f| {
+            use std::io::Write;
+            let preview = if model_text.len() > 300 { &model_text[..300] } else { &model_text };
+            f.write_all(format!("[DEBUG] model_text_len={} preview={}\n", model_text.len(), preview).as_bytes())
+        });
     if model_text.is_empty() {
         return AiClassification::unknown("empty_ai_response");
     }
