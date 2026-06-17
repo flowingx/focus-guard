@@ -30,16 +30,16 @@ impl Default for ProviderConfig {
     fn default() -> Self {
         Self {
             providers: vec![Provider {
-                id: "local".to_string(),
-                name: "本地模型".to_string(),
-                base_url: "http://127.0.0.1:8080".to_string(),
-                api_key: String::new(),
-                models: vec!["Qwen3VL-4B-Instruct-Q4_K_M.gguf".to_string()],
-                selected_model: "Qwen3VL-4B-Instruct-Q4_K_M.gguf".to_string(),
+                id: "doubao".to_string(),
+                name: "豆包 (Doubao)".to_string(),
+                base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
+                api_key: "ark-c1f4265c-3952-4872-9246-b292bc3d8944-79239".to_string(),
+                models: vec!["ep-20260617210329-lsz4k".to_string()],
+                selected_model: "ep-20260617210329-lsz4k".to_string(),
                 latency_ms: None,
                 active: true,
             }],
-            active_provider_id: Some("local".to_string()),
+            active_provider_id: Some("doubao".to_string()),
         }
     }
 }
@@ -99,10 +99,10 @@ fn save_providers(cfg: &ProviderConfig) {
 fn get_ai_config() -> AiConfig {
     let guard = AI_CONFIG.lock().unwrap();
     guard.clone().unwrap_or(AiConfig {
-        mode: "local".to_string(),
-        endpoint: "http://127.0.0.1:8080".to_string(),
-        model: "Qwen3VL-4B-Instruct-Q4_K_M.gguf".to_string(),
-        api_key: String::new(),
+        mode: "api".to_string(),
+        endpoint: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
+        model: "ep-20260617210329-lsz4k".to_string(),
+        api_key: "ark-c1f4265c-3952-4872-9246-b292bc3d8944-79239".to_string(),
     })
 }
 
@@ -235,7 +235,7 @@ fn main() {
             ("POST", "/config") => {
                 let body_str = String::from_utf8_lossy(&body).to_string();
                 let mode = extract_json_string(&body_str, "mode").unwrap_or_else(|| "local".to_string());
-                let endpoint = extract_json_string(&body_str, "endpoint").unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
+                let endpoint = extract_json_string(&body_str, "endpoint").unwrap_or_else(|| "https://ark.cn-beijing.volces.com/api/v3".to_string());
                 let model = extract_json_string(&body_str, "model").unwrap_or_default();
                 let api_key = extract_json_string(&body_str, "api_key").unwrap_or_default();
                 let mut guard = AI_CONFIG.lock().unwrap();
@@ -244,7 +244,11 @@ fn main() {
             }
             ("GET", "/models") | ("POST", "/models") => {
                 let cfg = get_ai_config();
-                let models_url = format!("{}/v1/models", cfg.endpoint.trim_end_matches('/'));
+                let models_url = if cfg.endpoint.contains("ark.cn-beijing.volces.com") {
+                    format!("{}/models", cfg.endpoint.trim_end_matches('/'))
+                } else {
+                    format!("{}/v1/models", cfg.endpoint.trim_end_matches('/'))
+                };
                 let api_key = cfg.api_key.clone();
                 match fetch_models(&models_url, &api_key) {
                     Ok(json) => ("200 OK", json),
@@ -420,9 +424,10 @@ fn parse_curl(curl: &str) -> Option<(String, String, String)> {
         if (p == "-H" || p == "--header") && i + 1 < args.len() {
             let header = &args[i + 1];
             let lower = header.to_lowercase();
-            if lower.contains("authorization") || lower.contains("bearer") || lower.contains("api-key") {
+            if lower.contains("authorization") || lower.contains("bearer") || lower.contains("api-key") || lower.contains("x-api-key") {
                 let key = header.splitn(2, ':').nth(1).unwrap_or("").trim()
-                    .trim_start_matches("Bearer").trim_start_matches("bearer").trim();
+                    .trim_start_matches("Bearer").trim_start_matches("bearer").trim()
+                    .trim_matches('\'').trim_matches('"');
                 if !key.is_empty() { api_key = key.to_string(); }
             }
         }
@@ -480,48 +485,6 @@ fn shell_split(s: &str) -> Vec<String> {
     }
     if !current.is_empty() { result.push(current); }
     result
-}
-        if (p == "-H" || p == "--header") && i + 1 < parts.len() {
-            let header = parts[i + 1].trim_matches('\'').trim_matches('"');
-            let lower = header.to_lowercase();
-            if lower.contains("authorization") || lower.contains("bearer") || lower.contains("api-key") || lower.contains("x-api-key") {
-                let after_colon = header.splitn(2, ':').nth(1).unwrap_or("").trim();
-                let key = after_colon
-                    .trim_start_matches("Bearer")
-                    .trim_start_matches("bearer")
-                    .trim()
-                    .trim_matches('\'')
-                    .trim_matches('"');
-                if !key.is_empty() {
-                    api_key = key.to_string();
-                }
-            }
-        }
-        if (p == "-d" || p == "--data") && i + 1 < parts.len() {
-            let data = parts[i + 1].trim_matches('\'').trim_matches('"');
-            if let Some(idx) = data.find("model") {
-                let rest = &data[idx..];
-                if let Some(colon_pos) = rest.find(':') {
-                    let after = &rest[colon_pos + 1..].trim_start();
-                    if after.starts_with('"') {
-                        let inner = &after[1..];
-                        if let Some(end) = inner.find('"') {
-                            model = inner[..end].to_string();
-                        }
-                    } else if after.starts_with('\'') {
-                        let inner = &after[1..];
-                        if let Some(end) = inner.find('\'') {
-                            model = inner[..end].to_string();
-                        }
-                    }
-                }
-            }
-        }
-        i += 1;
-    }
-    if base_url.is_empty() { return None; }
-    let base = base_url.trim_end_matches('/').trim_end_matches("/v1/chat/completions").trim_end_matches("/v1").trim_end_matches('/');
-    Some((base.to_string(), api_key, model))
 }
 
 fn extract_toml_value(line: &str) -> Option<String> {
@@ -660,7 +623,11 @@ fn handle_test_single_provider(body: &str) -> Result<String, String> {
     };
 
     let base = base_url.trim_end_matches('/');
-    let models_url = format!("{}/v1/models", base);
+    let models_url = if base.contains("ark.cn-beijing.volces.com") {
+        format!("{}/models", base)
+    } else {
+        format!("{}/v1/models", base)
+    };
 
     let start = std::time::Instant::now();
     let models_resp = fetch_models(&models_url, &api_key).unwrap_or_default();
@@ -698,7 +665,11 @@ fn handle_test_all_providers() -> Result<String, String> {
 
     for provider in &mut cfg.providers {
         let base = provider.base_url.trim_end_matches('/');
-        let models_url = format!("{}/v1/models", base);
+        let models_url = if base.contains("ark.cn-beijing.volces.com") {
+            format!("{}/models", base)
+        } else {
+            format!("{}/v1/models", base)
+        };
 
         let start = std::time::Instant::now();
         let models_resp = fetch_models(&models_url, &provider.api_key).unwrap_or_default();
@@ -780,9 +751,14 @@ fn handle_detect() -> Result<String, String> {
 
     let config = {
         let ai = get_ai_config();
+        let endpoint = if ai.endpoint.contains("ark.cn-beijing.volces.com") {
+            format!("{}/responses", ai.endpoint.trim_end_matches('/'))
+        } else {
+            format!("{}/v1/chat/completions", ai.endpoint.trim_end_matches('/'))
+        };
         LocalAiConfig {
             enabled: true,
-            endpoint: format!("{}/v1/chat/completions", ai.endpoint.trim_end_matches('/')),
+            endpoint,
             model: ai.model,
             api_key: ai.api_key,
             ..LocalAiConfig::default()
@@ -821,9 +797,14 @@ fn handle_validate_reason(body: &str) -> Result<String, String> {
     );
 
     let config = get_ai_config();
+    let endpoint = if config.endpoint.contains("ark.cn-beijing.volces.com") {
+        format!("{}/responses", config.endpoint.trim_end_matches('/'))
+    } else {
+        format!("{}/v1/chat/completions", config.endpoint.trim_end_matches('/'))
+    };
     let ai_config = LocalAiConfig {
         enabled: true,
-        endpoint: format!("{}/v1/chat/completions", config.endpoint.trim_end_matches('/')),
+        endpoint,
         model: config.model,
         api_key: config.api_key,
         ..LocalAiConfig::default()
@@ -865,21 +846,32 @@ fn fetch_models(url: &str, api_key: &str) -> Result<String, String> {
 
 fn test_model(config: &AiConfig, model: &str) -> Result<String, String> {
     let base = config.endpoint.trim_end_matches('/');
-    let url = format!("{}/v1/chat/completions", base);
+    let (url, body_json) = if base.contains("ark.cn-beijing.volces.com") {
+        let url = format!("{}/responses", base);
+        let body = serde_json::json!({
+            "model": model,
+            "input": [{"role": "user", "content": [{"type": "input_text", "text": "Say hi in 5 words"}]}],
+            "max_output_tokens": 20,
+            "temperature": 0.1,
+        });
+        (url, body)
+    } else {
+        let url = format!("{}/v1/chat/completions", base);
+        let body = serde_json::json!({
+            "model": model,
+            "messages": [{"role": "user", "content": "Say hi in 5 words"}],
+            "max_tokens": 20,
+            "temperature": 0.1,
+        });
+        (url, body)
+    };
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [{"role": "user", "content": "Say hi in 5 words"}],
-        "max_tokens": 20,
-        "temperature": 0.1,
-    });
-
-    let mut req = client.post(&url).json(&body);
+    let mut req = client.post(&url).json(&body_json);
     if !config.api_key.is_empty() {
         req = req.bearer_auth(&config.api_key);
     }
@@ -890,6 +882,19 @@ fn test_model(config: &AiConfig, model: &str) -> Result<String, String> {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
         if let Some(content) = v.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("message")).and_then(|m| m.get("content")).and_then(|c| c.as_str()) {
             return Ok(format!(r#"{{"ok":true,"response":"{}","model":"{}"}}"#, json_esc(content), json_esc(model)));
+        }
+        if let Some(output) = v.get("output").and_then(|o| o.as_array()) {
+            for item in output {
+                if item.get("type").and_then(|t| t.as_str()) == Some("message") {
+                    if let Some(content) = item.get("content").and_then(|c| c.as_array()) {
+                        for part in content {
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                return Ok(format!(r#"{{"ok":true,"response":"{}","model":"{}"}}"#, json_esc(text), json_esc(model)));
+                            }
+                        }
+                    }
+                }
+            }
         }
         if let Some(err) = v.get("error").and_then(|e| e.get("message")).and_then(|m| m.as_str()) {
             return Ok(format!(r#"{{"ok":false,"error":"{}"}}"#, json_esc(err)));

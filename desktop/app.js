@@ -28,10 +28,10 @@ const DEFAULT_APPS = ["WeChat.exe", "QQ.exe", "Doubao.exe", "doubao.exe"];
 
 const DEFAULT_LOCAL_AI = {
   enabled: false,
-  mode: "local",
-  endpoint: "http://127.0.0.1:8080",
-  model: "Qwen3VL-4B-Instruct-Q4_K_M.gguf",
-  apiKey: "",
+  mode: "api",
+  endpoint: "https://ark.cn-beijing.volces.com/api/v3",
+  model: "ep-20260617210329-lsz4k",
+  apiKey: "ark-c1f4265c-3952-4872-9246-b292bc3d8944-79239",
   apiBaseUrl: "https://api.openai.com",
   apiModel: "",
   sampleIntervalSeconds: 30,
@@ -42,6 +42,10 @@ const SERVER = "http://127.0.0.1:3001";
 
 function getFullEndpoint(base) {
   const url = (base || "").trim().replace(/\/+$/, "");
+  if (url.includes("ark.cn-beijing.volces.com")) {
+    if (url.endsWith("/responses")) return url;
+    return url + "/responses";
+  }
   if (url.endsWith("/v1/chat/completions")) return url;
   if (url.endsWith("/v1")) return url + "/chat/completions";
   return url + "/v1/chat/completions";
@@ -515,6 +519,10 @@ function render() {
 function renderLocalAiStatus() {
   const status = document.getElementById("local-ai-status");
   const dot = document.getElementById("ai-status-dot");
+  const stale = ["请在 WSL 终端中运行下方命令", "请确保 llama-server 在 WSL 端口 8080 运行", "待测试", "未启用", "未连接"];
+  if (stale.includes(state.localAi.status)) {
+    delete state.localAi.status;
+  }
   const stateText = state.localAi.status ?? (state.localAi.enabled ? "待测试" : "未启用");
   status.textContent = stateText;
 
@@ -790,7 +798,7 @@ async function detectProcrastination() {
         <div class="detect-info">
           <strong>AI 服务不可用</strong>
           <p class="detect-reason">${escapeHtml(msg)}</p>
-          <p class="detect-hint">确保 focus-guard-server 在 Windows 上运行（端口 3001），且 llama-server 在 WSL 端口 8080 运行</p>
+          <p class="detect-hint">确保 focus-guard-server 在运行（端口 3001），且已配置有效的 AI 供应商</p>
         </div>
       </div>
     `;

@@ -125,10 +125,6 @@ const VIDEO_DOMAINS = [
 
 const NATIVE_HOST = "com.focus_guard.desktop";
 const TEMPORARY_ALLOW_MINUTES = 30;
-const AI_DETECT_URL = "http://127.0.0.1:3001/detect";
-const AI_DETECT_ALARM = "ai_periodic_detect";
-const AI_DETECT_COOLDOWN_MS = 30_000;
-let lastAiDetectTime = 0;
 const pendingUnknownPrompts = new Map();
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -145,8 +141,6 @@ chrome.runtime.onInstalled.addListener(async () => {
     sessions: current.sessions ?? {},
     candidates: current.candidates ?? {},
   });
-
-  chrome.alarms.create(AI_DETECT_ALARM, { periodInMinutes: 5 });
 });
 
 chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
@@ -186,24 +180,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   });
 });
 
-chrome.webNavigation.onCompleted.addListener(async (details) => {
-  if (details.frameId !== 0 || !details.url.startsWith("http")) {
-    return;
-  }
-  await triggerAiDetect("page_load");
-});
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, sender).then(sendResponse).catch(() => sendResponse({ ok: false }));
   return true;
 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === AI_DETECT_ALARM) {
-    await triggerAiDetect("periodic");
-    return;
-  }
-
   if (!alarm.name.startsWith("session:")) {
     return;
   }
@@ -330,15 +312,6 @@ async function handleMessage(message, sender) {
 
   if (message.type === "add_unknown_site_decision") {
     return addUnknownSiteDecision(message);
-  }
-
-  if (message.type === "get_ai_detect_context") {
-    const { aiDetectContext = null } = await chrome.storage.local.get("aiDetectContext");
-    return aiDetectContext;
-  }
-
-  if (message.type === "validate_distraction_reason") {
-    return validateDistractionReason(message.reason, message.target);
   }
 
   return { ok: false };
@@ -704,102 +677,6 @@ async function safeTabSendMessage(tabId, message) {
     await chrome.tabs.sendMessage(tabId, message);
   } catch {
     // Some pages cannot receive content-script messages, and unknown-site review is non-blocking.
-  }
-}
-
-async function triggerAiDetect(source) {
-  const now = Date.now();
-  if (now - lastAiDetectTime < AI_DETECT_COOLDOWN_MS) {
-    return;
-  }
-  lastAiDetectTime = now;
-
-  try {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    const tab = tabs[0];
-    if (!tab || !tab.url || !tab.url.startsWith("http")) {
-      return;
-    }
-
-    const response = await fetch(AI_DETECT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-      signal: AbortSignal.timeout(60_000),
-    });
-
-    if (!response.ok) {
-      return;
-    }
-
-    const result = await response.json();
-
-    if (result.error) {
-      return;
-    }
-
-    const isDistracting = result.category === "distracting" || result.category === "distraction";
-
-    if (isDistracting) {
-      await chrome.storage.local.set({
-        aiDetectContext: {
-          tabId: tab.id,
-          target: `site:${new URL(tab.url).hostname}`,
-          reason: result.reason,
-          category: result.category,
-          confidence: result.confidence,
-        },
-      });
-
-      await chrome.scripting.insertCSS({
-        files: ["interference.css"],
-        target: { tabId: tab.id },
-      });
-      await chrome.scripting.executeScript({
-        files: ["interference.js"],
-        target: { tabId: tab.id },
-      });
-    }
-
-    const { aiDetectLog = [] } = await chrome.storage.local.get("aiDetectLog");
-    aiDetectLog.push({
-      timestamp: now,
-      source,
-      category: result.category,
-      confidence: result.confidence,
-      reason: result.reason,
-      process: result.process_name,
-      window: result.window_title,
-    });
-    if (aiDetectLog.length > 200) {
-      aiDetectLog.splice(0, aiDetectLog.length - 200);
-    }
-    await chrome.storage.local.set({ aiDetectLog });
-  } catch {
-    // Server not running or network error — silently ignore.
-  }
-}
-
-async function validateDistractionReason(reason, target) {
-  try {
-    const response = await fetch(AI_DETECT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ validate_reason: true, reason, target }),
-      signal: AbortSignal.timeout(30_000),
-    });
-
-    if (!response.ok) {
-      return { approved: true };
-    }
-
-    const result = await response.json();
-    return {
-      approved: result.approved ?? true,
-      message: result.message ?? "",
-    };
-  } catch {
-    return { approved: true };
   }
 }
 

@@ -163,8 +163,8 @@ Return JSON only, nothing else."#;
 impl Default for AiAnalyzer {
     fn default() -> Self {
         Self {
-            endpoint: "http://127.0.0.1:8080".to_string(),
-            model: "Qwen3VL-4B-Instruct-Q4_K_M.gguf".to_string(),
+            endpoint: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
+            model: "ep-20260617210329-lsz4k".to_string(),
         }
     }
 }

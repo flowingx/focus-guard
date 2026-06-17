@@ -3,7 +3,7 @@
   "name": "Focus Guard",
   "description": "Soft-block distracting sites until you state a time-boxed study intent.",
   "version": "0.1.0",
-  "permissions": ["storage", "tabs", "webNavigation", "nativeMessaging", "alarms", "notifications", "scripting"],
+  "permissions": ["storage", "tabs", "webNavigation", "nativeMessaging", "alarms", "notifications"],
   "host_permissions": ["<all_urls>"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'"
@@ -35,9 +35,7 @@
         "expired.html",
         "expired.js",
         "unknown.html",
-        "unknown.js",
-        "interference.js",
-        "interference.css"
+        "unknown.js"
       ],
       "matches": ["<all_urls>"]
     }

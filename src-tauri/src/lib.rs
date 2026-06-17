@@ -49,9 +49,9 @@ pub struct LocalAiConfig {
 impl Default for LocalAiConfig {
     fn default() -> Self {
         let endpoint = std::env::var("FG_AI_ENDPOINT")
-            .unwrap_or_else(|_| "http://127.0.0.1:8080/v1/chat/completions".to_string());
+            .unwrap_or_else(|_| "https://ark.cn-beijing.volces.com/api/v3".to_string());
         let model = std::env::var("FG_AI_MODEL")
-            .unwrap_or_else(|_| "Qwen3VL-4B-Instruct-Q4_K_M.gguf".to_string());
+            .unwrap_or_else(|_| "ep-20260617210329-lsz4k".to_string());
         let api_key = std::env::var("FG_AI_API_KEY").unwrap_or_default();
         Self {
             enabled: true,
@@ -299,6 +299,10 @@ pub fn local_ai_request_json(config: &LocalAiConfig, context: &AiContext) -> Str
     );
     let system_msg = "/no_think\nYou are Focus Guard, a strict focus assistant analyzing a FULL DESKTOP SCREENSHOT. CRITICAL RULES:\n1. Look at the ENTIRE screen - every pixel matters, not just the largest window.\n2. If you see ANY video site (bilibili, youtube, douyin, tiktok, netflix, twitch, gaming content, live streams), classify as \"distracting\" regardless of what else is visible.\n3. If you see social media feeds, short videos, gaming, entertainment - classify as \"distracting\" or \"entertainment\".\n4. Split screen with entertainment on ANY side = distracting.\n5. Only classify as \"study\" if the ENTIRE screen shows educational/productive content.\n6. Only classify as \"work\" if the ENTIRE screen shows work-related applications.\nCommon distracting sites to watch for: bilibili.com, youtube.com, douyin.com, tiktok.com, netflix.com, twitch.tv, x.com, weibo.com, zhihu.com (non-study).\nReturn JSON: {\"category\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"...\"}\nCategories: study, work, entertainment, distracting, unknown.";
 
+    if is_doubao_endpoint(&config.endpoint) {
+        return doubao_request_json(config, &user_content, &system_msg, context);
+    }
+
     let content_array = if let Some(image) = &context.screenshot_base64 {
         format!(
             "[{{\"type\":\"text\",\"text\":\"{}\"}},{{\"type\":\"image_url\",\"image_url\":{{\"url\":\"data:image/png;base64,{}\"}}}}]",
@@ -317,8 +321,41 @@ pub fn local_ai_request_json(config: &LocalAiConfig, context: &AiContext) -> Str
     )
 }
 
+fn is_doubao_endpoint(endpoint: &str) -> bool {
+    endpoint.contains("ark.cn-beijing.volces.com") || endpoint.contains("/api/v3/responses")
+}
+
+fn doubao_request_json(config: &LocalAiConfig, user_content: &str, system_msg: &str, context: &AiContext) -> String {
+    let mut content_parts: Vec<String> = Vec::new();
+
+    content_parts.push(format!(
+        "{{\"type\":\"input_text\",\"text\":\"{}\\n\\n{}\"}}",
+        json_escape(system_msg),
+        json_escape(user_content)
+    ));
+
+    if let Some(image) = &context.screenshot_base64 {
+        content_parts.push(format!(
+            "{{\"type\":\"input_image\",\"image_url\":\"data:image/png;base64,{}\"}}",
+            json_escape(image)
+        ));
+    }
+
+    format!(
+        "{{\"model\":\"{}\",\"input\":[{{\"role\":\"user\",\"content\":[{}],\"instructions\":\"{}\"}}],\"max_output_tokens\":300,\"temperature\":0.1}}",
+        json_escape(&config.model),
+        content_parts.join(","),
+        json_escape(system_msg)
+    )
+}
+
 pub fn classify_context_from_llm_response(response_json: &str) -> AiClassification {
-    let model_text = match serde_json::from_str::<serde_json::Value>(response_json) {
+    let model_text = extract_response_text(response_json);
+    parse_ai_classification(&model_text)
+}
+
+fn extract_response_text(response_json: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(response_json) {
         Ok(v) => {
             if let Some(content) = v
                 .get("choices")
@@ -332,13 +369,29 @@ pub fn classify_context_from_llm_response(response_json: &str) -> AiClassificati
                 response.to_string()
             } else if let Some(reasoning) = v.get("reasoning_content").and_then(|r| r.as_str()) {
                 reasoning.to_string()
+            } else if let Some(output) = v.get("output").and_then(|o| o.as_array()) {
+                extract_doubao_output_text(output)
             } else {
                 response_json.trim().to_string()
             }
         }
         Err(_) => response_json.trim().to_string(),
-    };
-    parse_ai_classification(&model_text)
+    }
+}
+
+fn extract_doubao_output_text(output: &[serde_json::Value]) -> String {
+    for item in output {
+        if item.get("type").and_then(|t| t.as_str()) == Some("message") {
+            if let Some(content) = item.get("content").and_then(|c| c.as_array()) {
+                for part in content {
+                    if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                        return text.to_string();
+                    }
+                }
+            }
+        }
+    }
+    String::new()
 }
 
 #[cfg(windows)]
@@ -641,27 +694,15 @@ pub fn strip_www(host: &str) -> String {
 
 pub fn classify_context_from_llm_response_raw(request_json: &str) -> Result<String, String> {
     let config = LocalAiConfig::default();
-    let response = post_json_with_key(&config.endpoint, request_json, &config.api_key)
-        .map_err(|e| format!("request failed: {}", e))?;
-    let model_text = match serde_json::from_str::<serde_json::Value>(&response) {
-        Ok(v) => {
-            if let Some(content) = v
-                .get("choices")
-                .and_then(|c| c.get(0))
-                .and_then(|c| c.get("message"))
-                .and_then(|m| m.get("content"))
-                .and_then(|c| c.as_str())
-            {
-                content.to_string()
-            } else if let Some(response) = v.get("response").and_then(|r| r.as_str()) {
-                response.to_string()
-            } else {
-                response.trim().to_string()
-            }
-        }
-        Err(_) => response.trim().to_string(),
+    let endpoint = if is_doubao_endpoint(&config.endpoint) {
+        let base = config.endpoint.trim_end_matches('/').to_string();
+        format!("{}/responses", base)
+    } else {
+        config.endpoint.clone()
     };
-    Ok(model_text)
+    let response = post_json_with_key(&endpoint, request_json, &config.api_key)
+        .map_err(|e| format!("request failed: {}", e))?;
+    Ok(extract_response_text(&response))
 }
 
 fn post_json_with_key(endpoint: &str, body: &str, api_key: &str) -> io::Result<String> {
