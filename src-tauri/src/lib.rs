@@ -373,7 +373,18 @@ fn doubao_request_json(config: &LocalAiConfig, user_content: &str, system_msg: &
 
 pub fn classify_context_from_llm_response(response_json: &str) -> AiClassification {
     let model_text = extract_response_text(response_json);
-    parse_ai_classification(&model_text)
+    if model_text.is_empty() {
+        return AiClassification::unknown("empty_ai_response");
+    }
+    let parsed = parse_ai_classification(&model_text);
+    if parsed.error.is_none() && parsed.category == "unknown" && parsed.reason == "invalid_model_json" {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&model_text) {
+            if let Some(inner) = v.as_str() {
+                return parse_ai_classification(inner);
+            }
+        }
+    }
+    parsed
 }
 
 fn extract_response_text(response_json: &str) -> String {
