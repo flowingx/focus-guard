@@ -349,10 +349,10 @@ fn doubao_request_json(config: &LocalAiConfig, user_content: &str, system_msg: &
     }
 
     format!(
-        "{{\"model\":\"{}\",\"input\":[{{\"role\":\"user\",\"content\":[{}],\"instructions\":\"{}\"}}],\"max_output_tokens\":300,\"temperature\":0.1}}",
+        "{{\"model\":\"{}\",\"instructions\":\"{}\",\"input\":[{{\"role\":\"user\",\"content\":[{}]}}],\"max_output_tokens\":800,\"temperature\":0.1}}",
         json_escape(&config.model),
-        content_parts.join(","),
-        json_escape(system_msg)
+        json_escape(system_msg),
+        content_parts.join(",")
     )
 }
 
