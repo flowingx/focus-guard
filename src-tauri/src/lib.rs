@@ -278,7 +278,7 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
                 .open(r"C:\TestDir\debug.log")
                 .and_then(|mut f| {
                     use std::io::Write;
-                    f.write_all(format!("[DEBUG] response_len={}\n", response.len()).as_bytes());
+                    let _ = f.write_all(format!("[DEBUG] response_len={}\n", response.len()).as_bytes());
                     let preview = if response.len() > 500 { &response[..500] } else { &response };
                     f.write_all(format!("[DEBUG] response_preview={}\n", preview).as_bytes())
                 });
@@ -352,12 +352,6 @@ fn is_doubao_endpoint(endpoint: &str) -> bool {
 fn doubao_request_json(config: &LocalAiConfig, user_content: &str, system_msg: &str, context: &AiContext) -> String {
     let mut content_parts: Vec<String> = Vec::new();
 
-    content_parts.push(format!(
-        "{{\"type\":\"input_text\",\"text\":\"{}\\n\\n{}\"}}",
-        json_escape(system_msg),
-        json_escape(user_content)
-    ));
-
     if let Some(image) = &context.screenshot_base64 {
         content_parts.push(format!(
             "{{\"type\":\"input_image\",\"image_url\":\"data:image/png;base64,{}\"}}",
@@ -365,10 +359,15 @@ fn doubao_request_json(config: &LocalAiConfig, user_content: &str, system_msg: &
         ));
     }
 
-    format!(
-        "{{\"model\":\"{}\",\"instructions\":\"{}\",\"input\":[{{\"role\":\"user\",\"content\":[{}]}}],\"max_output_tokens\":800,\"temperature\":0.1}}",
-        json_escape(&config.model),
+    content_parts.push(format!(
+        "{{\"type\":\"input_text\",\"text\":\"{}\\n\\n{}\"}}",
         json_escape(system_msg),
+        json_escape(user_content)
+    ));
+
+    format!(
+        "{{\"model\":\"{}\",\"input\":[{{\"role\":\"user\",\"content\":[{}]}}]}}",
+        json_escape(&config.model),
         content_parts.join(",")
     )
 }
