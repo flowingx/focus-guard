@@ -266,6 +266,39 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   });
 });
 
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== "local" || !changes.pendingInterference) return;
+  const ctx = changes.pendingInterference.newValue;
+  if (!ctx || !ctx.reason) return;
+
+  await chrome.storage.local.remove("pendingInterference");
+
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = tabs[0];
+    if (!tab || !tab.url || !tab.url.startsWith("http")) return;
+
+    await chrome.storage.local.set({
+      aiDetectContext: {
+        tabId: tab.id,
+        target: `site:${new URL(tab.url).hostname}`,
+        reason: ctx.reason,
+        category: ctx.category,
+        confidence: ctx.confidence,
+      },
+    });
+
+    await chrome.scripting.insertCSS({
+      files: ["interference.css"],
+      target: { tabId: tab.id },
+    });
+    await chrome.scripting.executeScript({
+      files: ["interference.js"],
+      target: { tabId: tab.id },
+    });
+  } catch {}
+});
+
 async function handleMessage(message, sender) {
   if (message.type === "get_intent_prompt") {
     const { candidates = {} } = await chrome.storage.local.get("candidates");

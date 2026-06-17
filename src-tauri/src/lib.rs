@@ -253,16 +253,6 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
         return AiClassification::unknown("local_ai_disabled");
     }
 
-    let debug_msg = format!("[DEBUG] endpoint={} model={}\n", config.endpoint, config.model);
-    let _ = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(r"C:\TestDir\debug.log")
-        .and_then(|mut f| {
-            use std::io::Write;
-            f.write_all(debug_msg.as_bytes())
-        });
-
     let request_json = local_ai_request_json(config, context);
     let result = if config.endpoint.starts_with("https://") {
         post_json_https(&config.endpoint, &request_json, &config.api_key)
@@ -272,16 +262,6 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
 
     match result {
         Ok(response) => {
-            let _ = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(r"C:\TestDir\debug.log")
-                .and_then(|mut f| {
-                    use std::io::Write;
-                    let _ = f.write_all(format!("[DEBUG] response_len={}\n", response.len()).as_bytes());
-                    let preview = if response.len() > 500 { &response[..500] } else { &response };
-                    f.write_all(format!("[DEBUG] response_preview={}\n", preview).as_bytes())
-                });
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&response) {
                 if let Some(err) = v.get("error") {
                     let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("API error");
@@ -295,14 +275,6 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
             classify_context_from_llm_response(&response)
         }
         Err(e) => {
-            let _ = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(r"C:\TestDir\debug.log")
-                .and_then(|mut f| {
-                    use std::io::Write;
-                    f.write_all(format!("[DEBUG] error={}\n", e).as_bytes())
-                });
             AiClassification {
                 error: Some(e.to_string()),
                 ..AiClassification::unknown("local_ai_unavailable")
@@ -324,7 +296,7 @@ pub fn local_ai_request_json(config: &LocalAiConfig, context: &AiContext) -> Str
     let system_msg = "/no_think\nYou are Focus Guard, a strict focus assistant analyzing a FULL DESKTOP SCREENSHOT. CRITICAL RULES:\n1. Look at the ENTIRE screen - every pixel matters, not just the largest window.\n2. If you see ANY video site (bilibili, youtube, douyin, tiktok, netflix, twitch, gaming content, live streams), classify as \"distracting\" regardless of what else is visible.\n3. If you see social media feeds, short videos, gaming, entertainment - classify as \"distracting\" or \"entertainment\".\n4. Split screen with entertainment on ANY side = distracting.\n5. Only classify as \"study\" if the ENTIRE screen shows educational/productive content.\n6. Only classify as \"work\" if the ENTIRE screen shows work-related applications.\nCommon distracting sites to watch for: bilibili.com, youtube.com, douyin.com, tiktok.com, netflix.com, twitch.tv, x.com, weibo.com, zhihu.com (non-study).\nReturn JSON: {\"category\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"...\"}\nCategories: study, work, entertainment, distracting, unknown.";
 
     if is_doubao_endpoint(&config.endpoint) {
-        return doubao_request_json(config, &user_content, &system_msg, context);
+        return doubao_request_json(config, &user_content, system_msg, context);
     }
 
     let content_array = if let Some(image) = &context.screenshot_base64 {
@@ -374,15 +346,6 @@ fn doubao_request_json(config: &LocalAiConfig, user_content: &str, system_msg: &
 
 pub fn classify_context_from_llm_response(response_json: &str) -> AiClassification {
     let model_text = extract_response_text(response_json);
-    let _ = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(r"C:\TestDir\debug.log")
-        .and_then(|mut f| {
-            use std::io::Write;
-            let preview = if model_text.len() > 300 { &model_text[..300] } else { &model_text };
-            f.write_all(format!("[DEBUG] model_text_len={} preview={}\n", model_text.len(), preview).as_bytes())
-        });
     if model_text.is_empty() {
         return AiClassification::unknown("empty_ai_response");
     }
@@ -736,8 +699,7 @@ pub fn strip_www(host: &str) -> String {
     host.strip_prefix("www.").unwrap_or(host).trim().to_string()
 }
 
-pub fn classify_context_from_llm_response_raw(request_json: &str) -> Result<String, String> {
-    let config = LocalAiConfig::default();
+pub fn classify_context_from_llm_response_raw(request_json: &str, config: &LocalAiConfig) -> Result<String, String> {
     let endpoint = if is_doubao_endpoint(&config.endpoint) {
         let base = config.endpoint.trim_end_matches('/').to_string();
         format!("{}/responses", base)

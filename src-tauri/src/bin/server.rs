@@ -425,7 +425,7 @@ fn parse_curl(curl: &str) -> Option<(String, String, String)> {
             let header = &args[i + 1];
             let lower = header.to_lowercase();
             if lower.contains("authorization") || lower.contains("bearer") || lower.contains("api-key") || lower.contains("x-api-key") {
-                let key = header.splitn(2, ':').nth(1).unwrap_or("").trim()
+                let key = header.split_once(':').map(|x| x.1).unwrap_or("").trim()
                     .trim_start_matches("Bearer").trim_start_matches("bearer").trim()
                     .trim_matches('\'').trim_matches('"');
                 if !key.is_empty() { api_key = key.to_string(); }
@@ -437,12 +437,12 @@ fn parse_curl(curl: &str) -> Option<(String, String, String)> {
                 let rest = &data[idx..];
                 if let Some(cp) = rest.find(':') {
                     let after = rest[cp + 1..].trim_start();
-                    let val = if after.starts_with('"') {
-                        after[1..].find('"').map(|e| &after[1..e+1])
-                    } else if after.starts_with('\'') {
-                        after[1..].find('\'').map(|e| &after[1..e+1])
+                    let val = if let Some(stripped) = after.strip_prefix('"') {
+                        stripped.strip_suffix('"')
+                    } else if let Some(stripped) = after.strip_prefix('\'') {
+                        stripped.strip_suffix('\'')
                     } else {
-                        after.split(|c: char| c == ',' || c == '}' || c == ' ').next()
+                        after.split([',', '}', ' ']).next()
                     };
                     if let Some(v) = val {
                         if !v.is_empty() { model = v.to_string(); }
@@ -734,15 +734,6 @@ fn handle_detect() -> Result<String, String> {
 
     let screenshot_b64 = capture_screen_thumbnail_base64();
 
-    if let Some(ref b64) = screenshot_b64 {
-        if let Ok(data) = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            b64,
-        ) {
-            let _ = std::fs::write(r"C:\TestDir\last_screenshot.png", &data);
-        }
-    }
-
     let context = AiContext {
         process_name: foreground.process_name.clone(),
         window_title: foreground.window_title.clone(),
@@ -820,7 +811,7 @@ fn handle_validate_reason(body: &str) -> Result<String, String> {
     };
 
     let request_json = focus_guard_desktop::local_ai_request_json(&ai_config, &fake_context);
-    match focus_guard_desktop::classify_context_from_llm_response_raw(&request_json) {
+    match focus_guard_desktop::classify_context_from_llm_response_raw(&request_json, &ai_config) {
         Ok(response) => {
             let approved = response.contains("\"approved\":true") || response.contains("\"approved\": true");
             let message = extract_json_string(&response, "message").unwrap_or_else(|| {

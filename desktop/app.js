@@ -553,6 +553,17 @@ async function detectProcrastination() {
           </div>
         </div>
       `;
+
+      if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({
+          pendingInterference: {
+            reason: result.reason || "AI 判断你当前可能在摸鱼",
+            category: result.category,
+            confidence: result.confidence,
+            timestamp: Date.now(),
+          },
+        });
+      }
     } else {
       resultBox.className = "detect-result ok";
       resultBox.innerHTML = `
