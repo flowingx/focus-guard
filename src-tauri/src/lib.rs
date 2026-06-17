@@ -261,7 +261,14 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
             f.write_all(debug_msg.as_bytes())
         });
 
-    match post_json_with_key(&config.endpoint, &local_ai_request_json(config, context), &config.api_key) {
+    let request_json = local_ai_request_json(config, context);
+    let result = if config.endpoint.starts_with("https://") {
+        post_json_https(&config.endpoint, &request_json, &config.api_key)
+    } else {
+        post_json_with_key(&config.endpoint, &request_json, &config.api_key)
+    };
+
+    match result {
         Ok(response) => {
             let _ = std::fs::OpenOptions::new()
                 .create(true)
@@ -700,9 +707,33 @@ pub fn classify_context_from_llm_response_raw(request_json: &str) -> Result<Stri
     } else {
         config.endpoint.clone()
     };
-    let response = post_json_with_key(&endpoint, request_json, &config.api_key)
-        .map_err(|e| format!("request failed: {}", e))?;
+    let response = if endpoint.starts_with("https://") {
+        post_json_https(&endpoint, request_json, &config.api_key)
+    } else {
+        post_json_with_key(&endpoint, request_json, &config.api_key)
+    };
+    let response = response.map_err(|e| format!("request failed: {}", e))?;
     Ok(extract_response_text(&response))
+}
+
+fn post_json_https(endpoint: &str, body: &str, api_key: &str) -> io::Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|e| io::Error::other(e.to_string()))?;
+
+    let mut req = client
+        .post(endpoint)
+        .header("Content-Type", "application/json")
+        .body(body.to_string());
+
+    if !api_key.is_empty() {
+        req = req.bearer_auth(api_key);
+    }
+
+    let resp = req.send().map_err(|e| io::Error::other(e.to_string()))?;
+    let text = resp.text().map_err(|e| io::Error::other(e.to_string()))?;
+    Ok(text)
 }
 
 fn post_json_with_key(endpoint: &str, body: &str, api_key: &str) -> io::Result<String> {
