@@ -90,7 +90,7 @@ const state = loadState();
 
 applyTheme(state.theme ?? "system");
 render();
-loadProviders();
+loadApiKey();
 
 function applyTheme(theme) {
   if (theme === "system") {
@@ -139,266 +139,46 @@ document.getElementById("local-ai-enabled").addEventListener("change", (event) =
   saveState();
 });
 
-let editingProviderId = null;
-
-document.getElementById("add-provider-btn").addEventListener("click", () => {
-  editingProviderId = null;
-  document.getElementById("provider-editor-title").textContent = "添加供应商";
-  document.getElementById("pe-name").value = "";
-  document.getElementById("pe-base-url").value = "";
-  document.getElementById("pe-api-key").value = "";
-  document.getElementById("pe-model").value = "";
-  document.getElementById("pe-status").textContent = "";
-  document.getElementById("pe-test-result").classList.add("hidden");
-  document.getElementById("provider-editor").classList.remove("hidden");
-});
-
-document.getElementById("paste-config-btn").addEventListener("click", () => {
-  document.getElementById("paste-config-text").value = "";
-  document.getElementById("parse-result").classList.add("hidden");
-  document.getElementById("paste-config-modal").classList.remove("hidden");
-});
-
-document.getElementById("paste-config-cancel").addEventListener("click", () => {
-  document.getElementById("paste-config-modal").classList.add("hidden");
-});
-
-document.getElementById("parse-config-btn").addEventListener("click", async () => {
-  const text = document.getElementById("paste-config-text").value;
-  if (!text.trim()) return;
-
-  const resultEl = document.getElementById("parse-result");
-  resultEl.classList.remove("hidden");
-  resultEl.className = "detect-result";
-  resultEl.innerHTML = `<div class="detect-loading"><div class="spinner"></div><span>正在解析配置...</span></div>`;
-
+async function loadApiKey() {
   try {
-    const resp = await fetch(`${SERVER}/parse-config`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    });
+    const resp = await fetch(`${SERVER}/config`);
     const data = await resp.json();
-
-    if (data.ok && data.configs?.length > 0) {
-      let html = `<div class="detect-card"><div class="detect-icon">✅</div><div class="detect-info"><strong>识别到 ${data.configs.length} 个配置</strong></div></div>`;
-      for (const cfg of data.configs) {
-        html += `
-          <div style="margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:8px;">
-            <div style="font-size:13px;margin-bottom:6px;">
-              <strong>Base URL:</strong> ${escapeHtml(cfg.base_url || '未识别')}<br>
-              <strong>API Key:</strong> ${cfg.api_key ? escapeHtml(cfg.api_key.slice(0, 8) + '...') : '未识别'}<br>
-              <strong>Model:</strong> ${escapeHtml(cfg.model || '未识别')}<br>
-              <strong>来源:</strong> ${escapeHtml(cfg.source || 'unknown')}
-            </div>
-            <button onclick="importParsedConfig('${escapeHtml(cfg.base_url)}','${escapeHtml(cfg.api_key)}','${escapeHtml(cfg.model)}')" class="btn-sm btn-primary">导入为供应商</button>
-          </div>
-        `;
-      }
-      resultEl.className = "detect-result ok";
-      resultEl.innerHTML = html;
-    } else {
-      resultEl.className = "detect-result warn";
-      resultEl.innerHTML = `<div class="detect-card"><div class="detect-icon">⚠️</div><div class="detect-info"><strong>未识别到有效配置</strong><p class="detect-reason">${data.error || "请检查粘贴的内容格式"}</p></div></div>`;
+    const keyInput = document.getElementById("pe-api-key");
+    if (keyInput && data.hasApiKey) {
+      keyInput.value = "••••••••";
     }
-  } catch (e) {
-    resultEl.className = "detect-result warn";
-    resultEl.innerHTML = `<div class="detect-card"><div class="detect-icon">⚠️</div><div class="detect-info"><strong>解析失败</strong><p class="detect-reason">${e.message}</p></div></div>`;
-  }
-});
-
-window.importParsedConfig = function(base_url, api_key, model) {
-  editingProviderId = null;
-  document.getElementById("provider-editor-title").textContent = "添加供应商";
-  document.getElementById("pe-name").value = new URL(base_url).hostname;
-  document.getElementById("pe-base-url").value = base_url;
-  document.getElementById("pe-api-key").value = api_key;
-  document.getElementById("pe-model").value = model;
-  document.getElementById("pe-status").textContent = "";
-  document.getElementById("pe-test-result").classList.add("hidden");
-  document.getElementById("provider-editor").classList.remove("hidden");
-  document.getElementById("paste-config-modal").classList.add("hidden");
-};
-
-document.getElementById("pe-cancel-btn").addEventListener("click", () => {
-  document.getElementById("provider-editor").classList.add("hidden");
-  editingProviderId = null;
-});
-
-document.getElementById("pe-test-btn").addEventListener("click", async () => {
-  const baseUrl = document.getElementById("pe-base-url").value.trim();
-  const apiKey = document.getElementById("pe-api-key").value.trim();
-  const model = document.getElementById("pe-model").value.trim();
-  if (!baseUrl) return;
-
-  const statusEl = document.getElementById("pe-status");
-  const resultEl = document.getElementById("pe-test-result");
-  statusEl.textContent = "测试中...";
-  statusEl.className = "pill muted-pill";
-  resultEl.classList.remove("hidden");
-  resultEl.className = "detect-result";
-  resultEl.innerHTML = `<div class="detect-loading"><div class="spinner"></div><span>正在测试连接...</span></div>`;
-
-  try {
-    const resp = await fetch(`${SERVER}/providers/test`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ base_url: baseUrl, api_key: apiKey, model }),
-    });
-    const data = await resp.json();
-    if (data.ok) {
-      statusEl.textContent = `✅ ${data.latency_ms}ms`;
-      statusEl.className = "pill ok-pill";
-      resultEl.className = "detect-result ok";
-      resultEl.innerHTML = `<div class="detect-card"><div class="detect-icon">✅</div><div class="detect-info"><strong>连接成功</strong><p class="detect-reason">响应时间: ${data.latency_ms}ms</p><p class="detect-hint">发现 ${data.models?.length ?? 0} 个模型: ${(data.models || []).slice(0, 5).join(", ")}</p></div></div>`;
-      const dl = document.getElementById("pe-model-list");
-      if (dl) dl.innerHTML = (data.models || []).map(m => `<option value="${m}">`).join("");
-    } else {
-      statusEl.textContent = "❌ 失败";
-      statusEl.className = "pill muted-pill";
-      resultEl.className = "detect-result warn";
-      resultEl.innerHTML = `<div class="detect-card"><div class="detect-icon">⚠️</div><div class="detect-info"><strong>测试失败</strong><p class="detect-reason">${data.error || "未知错误"}</p></div></div>`;
-    }
-  } catch (e) {
-    statusEl.textContent = "❌ 连接失败";
-    statusEl.className = "pill muted-pill";
-    resultEl.className = "detect-result warn";
-    resultEl.innerHTML = `<div class="detect-card"><div class="detect-icon">⚠️</div><div class="detect-info"><strong>连接失败</strong><p class="detect-reason">${e.message}</p></div></div>`;
-  }
-});
+    renderLocalAiStatus();
+  } catch {}
+}
 
 document.getElementById("pe-save-btn").addEventListener("click", async () => {
-  const name = document.getElementById("pe-name").value.trim() || "未命名";
-  const base_url = document.getElementById("pe-base-url").value.trim();
-  const api_key = document.getElementById("pe-api-key").value.trim();
-  const model = document.getElementById("pe-model").value.trim();
-  if (!base_url) return;
+  const keyInput = document.getElementById("pe-api-key");
+  const apiKey = keyInput.value.trim();
+  if (!apiKey || apiKey === "••••••••") {
+    keyInput.focus();
+    return;
+  }
 
-  if (editingProviderId) {
-    await fetch(`${SERVER}/providers`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: editingProviderId, name, base_url, api_key, selected_model: model }),
-    });
-  } else {
-    await fetch(`${SERVER}/providers`, {
+  try {
+    await fetch(`${SERVER}/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, base_url, api_key, selected_model: model }),
+      body: JSON.stringify({
+        mode: "api",
+        endpoint: "https://ark.cn-beijing.volces.com/api/v3",
+        model: "ep-20260617210329-lsz4k",
+        api_key: apiKey,
+      }),
     });
+    keyInput.value = "••••••••";
+    state.localAi.enabled = true;
+    document.getElementById("local-ai-enabled").checked = true;
+    saveState();
+    renderLocalAiStatus();
+  } catch (e) {
+    alert("保存失败: " + e.message);
   }
-
-  document.getElementById("provider-editor").classList.add("hidden");
-  editingProviderId = null;
-  await loadProviders();
 });
-
-document.getElementById("test-all-providers-btn").addEventListener("click", async () => {
-  const btn = document.getElementById("test-all-providers-btn");
-  btn.textContent = "测试中...";
-  btn.disabled = true;
-
-  try {
-    const resp = await fetch(`${SERVER}/providers/test-all`, { method: "POST" });
-    const data = await resp.json();
-    if (data.ok) {
-      await loadProviders();
-    }
-  } catch {}
-
-  btn.textContent = "全部测试排序";
-  btn.disabled = false;
-});
-
-async function loadProviders() {
-  try {
-    const resp = await fetch(`${SERVER}/providers`);
-    const data = await resp.json();
-    renderProviderCards(data);
-  } catch {}
-}
-
-function renderProviderCards(data) {
-  const container = document.getElementById("provider-cards");
-  if (!container) return;
-  const providers = data.providers || [];
-  const activeId = data.active_provider_id;
-
-  container.innerHTML = providers.map(p => {
-    const isActive = p.id === activeId;
-    const latency = p.latency_ms;
-    let badgeClass = "offline";
-    let badgeText = "未测试";
-    if (latency !== null && latency !== undefined) {
-      if (latency < 1000) { badgeClass = "fast"; badgeText = `${latency}ms`; }
-      else if (latency < 3000) { badgeClass = "medium"; badgeText = `${latency}ms`; }
-      else { badgeClass = "slow"; badgeText = `${latency}ms`; }
-    }
-    return `
-      <div class="provider-card ${isActive ? 'active' : ''}" data-id="${p.id}">
-        <div class="pc-header">
-          <span class="pc-name">${escapeHtml(p.name)}</span>
-          <span class="pc-badge ${badgeClass}">${badgeText}</span>
-        </div>
-        <div class="pc-url">${escapeHtml(p.base_url)}</div>
-        <div class="pc-models">模型: ${p.models?.length ?? 0} 个 | 选中: ${escapeHtml(p.selected_model || '未选择')}</div>
-        <div class="pc-actions">
-          <button onclick="selectProvider('${p.id}')" class="btn-sm ${isActive ? 'btn-primary' : ''}">${isActive ? '当前使用' : '使用'}</button>
-          <button onclick="testProvider('${p.id}')" class="btn-sm">测试</button>
-          <button onclick="editProvider('${p.id}')" class="btn-sm">编辑</button>
-          <button onclick="deleteProvider('${p.id}')" class="btn-sm btn-cancel">删除</button>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-window.selectProvider = async function(id) {
-  await fetch(`${SERVER}/providers/select`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id }),
-  });
-  await loadProviders();
-  renderLocalAiStatus();
-};
-
-window.testProvider = async function(id) {
-  const card = document.querySelector(`.provider-card[data-id="${id}"]`);
-  if (card) {
-    const badge = card.querySelector('.pc-badge');
-    if (badge) { badge.className = 'pc-badge medium'; badge.textContent = '测试中...'; }
-  }
-  await fetch(`${SERVER}/providers/test`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id }),
-  });
-  await loadProviders();
-};
-
-window.editProvider = async function(id) {
-  const resp = await fetch(`${SERVER}/providers`);
-  const data = await resp.json();
-  const p = (data.providers || []).find(x => x.id === id);
-  if (!p) return;
-
-  editingProviderId = id;
-  document.getElementById("provider-editor-title").textContent = "编辑供应商";
-  document.getElementById("pe-name").value = p.name;
-  document.getElementById("pe-base-url").value = p.base_url;
-  document.getElementById("pe-api-key").value = p.api_key;
-  document.getElementById("pe-model").value = p.selected_model;
-  document.getElementById("pe-status").textContent = "";
-  document.getElementById("pe-test-result").classList.add("hidden");
-  document.getElementById("provider-editor").classList.remove("hidden");
-};
-
-window.deleteProvider = async function(id) {
-  if (!confirm("确定删除此供应商？")) return;
-  await fetch(`${SERVER}/providers/${id}`, { method: "DELETE" });
-  await loadProviders();
-};
 
 async function saveConfigToServer() {}
 

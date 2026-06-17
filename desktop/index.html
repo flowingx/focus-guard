@@ -71,8 +71,8 @@
       <section class="panel wide">
         <div class="section-head">
           <div>
-            <h2>AI 服务配置</h2>
-            <p class="hint">支持多个 API 供应商，自动测试排序，一键切换</p>
+            <h2>AI 摸鱼检测</h2>
+            <p class="hint">截屏分析桌面内容，检测是否在摸鱼</p>
           </div>
           <label class="switch-row">
             <input id="local-ai-enabled" type="checkbox" />
@@ -80,56 +80,15 @@
           </label>
         </div>
 
-        <div class="provider-toolbar">
-          <button id="add-provider-btn" type="button" class="btn-primary">+ 添加供应商</button>
-          <button id="paste-config-btn" type="button">📋 粘贴配置</button>
-          <button id="test-all-providers-btn" type="button">全部测试排序</button>
+        <div class="settings-grid" style="margin-top:16px">
+          <label>
+            <span>豆包 API Key</span>
+            <input id="pe-api-key" type="password" placeholder="ark-..." />
+          </label>
         </div>
-        <div id="provider-cards" class="provider-cards"></div>
-
-        <div id="paste-config-modal" class="provider-editor hidden">
-          <h3>粘贴配置代码</h3>
-          <p class="hint">支持粘贴 curl 命令、TOML 配置、JSON 环境变量等，系统会自动识别 API 地址和密钥</p>
-          <textarea id="paste-config-text" rows="8" placeholder="粘贴 curl 命令、config.toml、auth.json 等配置内容..."></textarea>
-          <div class="ai-test-row">
-            <button id="parse-config-btn" type="button" class="btn-primary">解析配置</button>
-            <button id="paste-config-cancel" type="button">取消</button>
-          </div>
-          <div id="parse-result" class="detect-result hidden"></div>
-        </div>
-
-        <div id="provider-editor" class="provider-editor hidden">
-          <h3 id="provider-editor-title">添加供应商</h3>
-          <div class="settings-grid">
-            <label>
-              <span>名称</span>
-              <input id="pe-name" type="text" placeholder="例如：中转站 A" />
-            </label>
-            <label>
-              <span>Base URL</span>
-              <input id="pe-base-url" type="url" placeholder="https://api.example.com" />
-            </label>
-            <label>
-              <span>API Key</span>
-              <input id="pe-api-key" type="password" placeholder="sk-..." />
-            </label>
-            <label>
-              <span>模型名（可留空自动检测）</span>
-              <input id="pe-model" type="text" list="pe-model-list" />
-              <datalist id="pe-model-list"></datalist>
-            </label>
-          </div>
-          <div class="ai-test-row">
-            <button id="pe-test-btn" type="button">测试连接</button>
-            <button id="pe-save-btn" type="button" class="btn-primary">保存</button>
-            <button id="pe-cancel-btn" type="button">取消</button>
-            <span id="pe-status" class="pill muted-pill"></span>
-          </div>
-          <div id="pe-test-result" class="detect-result hidden"></div>
-        </div>
-
-        <div class="ai-test-row" style="margin-top:16px">
-          <button id="detect-now" type="button" class="btn-primary">检测摸鱼</button>
+        <div class="ai-test-row" style="margin-top:12px">
+          <button id="pe-save-btn" type="button" class="btn-primary">保存</button>
+          <button id="detect-now" type="button">检测摸鱼</button>
           <span id="ai-status-dot" class="status-dot"></span>
           <span id="local-ai-status" class="pill muted-pill">未连接</span>
         </div>
