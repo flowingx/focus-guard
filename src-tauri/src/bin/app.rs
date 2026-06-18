@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager,
+    AppHandle, Emitter, Manager,
 };
 
 struct ServerState {
@@ -12,8 +12,8 @@ struct ServerState {
 
 static SERVER: Mutex<ServerState> = Mutex::new(ServerState { child: None });
 
-fn server_exe_path(app: &AppHandle) -> std::path::PathBuf {
-    let exe = app.env().current_exe.clone().unwrap_or_default();
+fn server_exe_path() -> std::path::PathBuf {
+    let exe = std::env::current_exe().unwrap_or_default();
     exe.parent()
         .unwrap_or(std::path::Path::new("."))
         .join("focus-guard-server.exe")
@@ -26,7 +26,7 @@ fn start_server(app: AppHandle) -> Result<String, String> {
         return Ok("already_running".to_string());
     }
 
-    let path = server_exe_path(&app);
+    let path = server_exe_path();
     if !path.exists() {
         return Err(format!("Server not found at {}", path.display()));
     }
