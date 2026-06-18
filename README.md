@@ -29,6 +29,22 @@ Chrome/Edge 扩展  ◄──Native Messaging──►  focus-guard-native-host 
 
 ## 快速启动
 
+### 一键启动（推荐）
+
+**Windows:**
+```bash
+start.bat
+```
+
+**Linux/WSL:**
+```bash
+./start.sh
+```
+
+脚本会自动构建 Rust 后端、启动服务器和桌面 UI，并打开浏览器。
+
+### 手动启动
+
 ### 前置条件
 
 - Windows 10/11

@@ -13,6 +13,10 @@
 # Source runtimes before any command
 export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh" && source "$HOME/.cargo/env"
 
+# One-click start (builds + runs everything)
+./start.sh          # Linux/WSL
+start.bat           # Windows
+
 # Run all tests
 npm run test:all
 
