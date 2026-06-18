@@ -90,7 +90,8 @@ netstat -ano | findstr ":3001" | findstr "LISTENING" >nul 2>&1
 if %errorlevel% equ 0 (
     echo     端口 3001 已被占用，后端服务可能已在运行
 ) else (
-    start "FocusGuard-Server" /min "%RELEASE_DIR%\focus-guard-server.exe"
+    REM 使用 PowerShell 最小化启动，窗口会最小化到任务栏
+    powershell -Command "Start-Process -FilePath '%RELEASE_DIR%\focus-guard-server.exe' -WindowStyle Minimized"
     timeout /t 2 /nobreak >nul
     
     REM 检查服务是否启动
@@ -115,7 +116,8 @@ if %errorlevel% equ 0 (
 ) else (
     if defined PYTHON_CMD (
         echo     使用 Python 提供静态文件服务
-        start "FocusGuard-UI" /min cmd /c "%PYTHON_CMD% -m http.server 3000 --bind 0.0.0.0 --directory desktop"
+        REM 使用 PowerShell 最小化启动
+        powershell -Command "Start-Process -FilePath 'cmd.exe' -ArgumentList '/c %PYTHON_CMD% -m http.server 3000 --bind 0.0.0.0 --directory desktop' -WindowStyle Minimized"
     ) else (
         echo     未找到 Python，直接打开 HTML 文件
         start "" "%~dp0desktop\index.html"
