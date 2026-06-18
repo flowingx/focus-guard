@@ -40,6 +40,49 @@ const DEFAULT_LOCAL_AI = {
 
 const SERVER = "http://127.0.0.1:3001";
 
+const isTauri = typeof window.__TAURI__ !== "undefined";
+
+async function tauriInvoke(cmd, args) {
+  if (!isTauri) return null;
+  return window.__TAURI__.core.invoke(cmd, args);
+}
+
+async function checkAndStartServer() {
+  if (!isTauri) return;
+  try {
+    const health = await tauriInvoke("check_server_health");
+    if (!health) {
+      await tauriInvoke("start_server");
+    }
+  } catch {}
+}
+
+if (isTauri) {
+  checkAndStartServer();
+  window.__TAURI__.event.listen("server-status-changed", () => {
+    renderLocalAiStatus();
+    updateServerStatus();
+  });
+}
+
+async function updateServerStatus() {
+  const el = document.getElementById("server-status");
+  if (!el) return;
+  if (!isTauri) { el.style.display = "none"; return; }
+  el.style.display = "";
+  try {
+    const running = await tauriInvoke("check_server_health");
+    el.textContent = running ? "Server: ON" : "Server: OFF";
+    el.className = running ? "pill ok-pill" : "pill muted-pill";
+  } catch {
+    el.textContent = "Server: OFF";
+    el.className = "pill muted-pill";
+  }
+}
+
+setInterval(updateServerStatus, 5000);
+updateServerStatus();
+
 function getFullEndpoint(base) {
   const url = (base || "").trim().replace(/\/+$/, "");
   if (url.includes("ark.cn-beijing.volces.com")) {
