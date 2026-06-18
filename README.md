@@ -41,7 +41,8 @@ start.bat
 ./start.sh
 ```
 
-脚本会自动构建 Rust 后端、启动服务器和桌面 UI，并打开浏览器。
+Windows 上 `start.bat` 会启动 Tauri 桌面应用（系统托盘 + 内嵌 WebView），自动启动后端服务。
+Linux/WSL 上 `start.sh` 启动服务器 + Python HTTP 服务，浏览器打开 UI。
 
 ### 手动启动
 
@@ -111,7 +112,10 @@ curl http://127.0.0.1:8080/v1/models
 ```bash
 cargo build --manifest-path src-tauri/Cargo.toml --release
 
-# 运行服务
+# 启动桌面应用（推荐，自动管理服务）
+cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-app --release
+
+# 或单独运行服务
 cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-server --release
 cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-native-host --release
 ```
@@ -124,6 +128,10 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-native-host --r
 
 ### 第五步：打开桌面 UI
 
+**Windows（Tauri 桌面应用）：**
+启动 `focus-guard-app.exe` 后自动显示配置界面，无需浏览器。系统托盘右键可管理服务。
+
+**Linux/WSL（浏览器 UI）：**
 ```bash
 python3 -m http.server 3000 --bind 0.0.0.0 --directory desktop/
 # 浏览器打开 http://localhost:3000
@@ -140,6 +148,7 @@ python3 -m http.server 3000 --bind 0.0.0.0 --directory desktop/
 
 | 二进制 | 作用 | 端口 |
 |--------|------|------|
+| `focus-guard-app` | Tauri 桌面应用（系统托盘 + WebView UI） | — |
 | `focus-guard-server` | HTTP 截图分析服务 | 3001 (0.0.0.0) |
 | `focus-guard-native-host` | Chrome 原生消息主机 | stdin/stdout |
 
@@ -163,13 +172,17 @@ extension/              Chrome/Edge 扩展（Manifest V3）
   background.js         服务脚本（策略、AI 检测、强制干预）
   interference.js       强制干预遮罩逻辑
   interference.css      遮罩样式（支持深色模式）
-desktop/                桌面 UI（HTML/JS/CSS）
-  app.js                主逻辑（供应商管理、深色模式）
+desktop/                桌面 UI（HTML/JS/CSS，Tauri WebView 加载）
+  app.js                主逻辑（供应商管理、深色模式、服务状态）
   styles.css            样式（Claude/macOS 风格）
 shared/policy.js        共享策略逻辑（域名匹配、意图会话）
-src-tauri/              Rust 后端
+src-tauri/              Rust 后端 + Tauri 桌面应用
+  tauri.conf.json       Tauri 配置（窗口、托盘、打包）
+  build.rs              Tauri 构建脚本
+  icons/                应用图标（ICO + PNG）
   src/lib.rs            核心逻辑（策略、AI、截图）
   src/screenshot.rs     Win32 API 全桌面截图（DPI 感知）
+  src/bin/app.rs        Tauri 桌面应用（系统托盘、服务管理、日志流）
   src/bin/server.rs     HTTP 服务（多供应商管理、配置解析）
   src/bin/native_host.rs 原生消息主机
 tests/                  JS 测试（node:test）
@@ -178,7 +191,10 @@ tests/                  JS 测试（node:test）
 ## 构建发布
 
 ```bash
-# 本地构建
+# 构建桌面应用（Windows）
+cargo build --manifest-path src-tauri/Cargo.toml --release --bin focus-guard-app
+
+# 构建所有二进制
 cargo build --manifest-path src-tauri/Cargo.toml --release
 
 # GitHub Actions 自动构建（推送 v* 标签触发）

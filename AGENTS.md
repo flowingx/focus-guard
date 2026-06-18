@@ -34,14 +34,15 @@ python3 -m http.server 3000 --bind 0.0.0.0 --directory /home/flow/focus-guard/de
 
 - `extension/` — Chrome/Edge Manifest V3 extension (service worker in `background.js`)
 - `shared/policy.js` — Shared policy logic (domain matching, intent sessions, allowlists). Used by the extension.
-- `src-tauri/` — Rust backend (`lib.rs` + modules). Communicates with extension via Chrome Native Messaging protocol (4-byte LE length prefix + JSON).
-- `desktop/` — Desktop UI (plain HTML/JS/CSS, served as static files)
+- `src-tauri/` — Rust backend + Tauri desktop app. Communicates with extension via Chrome Native Messaging protocol (4-byte LE length prefix + JSON).
+- `desktop/` — Desktop UI (HTML/JS/CSS, loaded by Tauri WebView on Windows, served by Python on Linux)
 - `tests/` — JS tests using `node:test` + `node:assert/strict`. Run via `node tests/run.js`.
 
 ## Binaries
 
 | Binary | Purpose | Port |
 |--------|---------|------|
+| `focus-guard-app` | Tauri desktop app (system tray + WebView UI + server management) | — |
 | `focus-guard-server` | HTTP screenshot analysis + multi-provider AI | 3001 (0.0.0.0) |
 | `focus-guard-native-host` | Chrome native messaging host (extension ↔ Rust) | stdin/stdout |
 
@@ -67,16 +68,16 @@ LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64:/tmp/llama-cuda-build/build/bin \
 ### 2. Build & run Rust services (Windows)
 ```powershell
 cargo build --manifest-path src-tauri/Cargo.toml --release
-cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-server --release
-cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-native-host --release
+cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-app --release
+# focus-guard-app auto-starts focus-guard-server, no need to run separately
 ```
 
 ### 3. Load Chrome extension
 - `chrome://extensions` → Developer mode → Load unpacked → select `extension/` folder
 
 ### 4. Open desktop UI
-- `python3 -m http.server 3000 --bind 0.0.0.0 --directory desktop/`
-- Browse to `http://localhost:3000`
+- **Windows**: `focus-guard-app` opens a WebView window with the UI, or access via system tray
+- **Linux/WSL**: `python3 -m http.server 3000 --bind 0.0.0.0 --directory desktop/` then browse to `http://localhost:3000`
 
 ## How to Debug
 
