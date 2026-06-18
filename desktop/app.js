@@ -38,13 +38,76 @@ const DEFAULT_LOCAL_AI = {
   confidenceThreshold: 0.75,
 };
 
-const SERVER = "http://127.0.0.1:3001";
+const DEFAULT_ALLOWLIST_RULES = [
+  "*.edu",
+  "*.edu.cn",
+  "*.ac.*",
+  "*.google.*",
+  "*.bing.*",
+  "*.duckduckgo.*",
+  "*.ecosia.*",
+  "*.yandex.*",
+  "search.yahoo.com",
+  "www.sogou.com",
+  "www.so.com",
+  "=baidu.com",
+  "=www.baidu.com",
+  "=m.baidu.com",
+  "chatgpt.com",
+  "chat.openai.com",
+  "gemini.google.com",
+  "yuanbao.tencent.com",
+  "chatglm.cn",
+  "kimi.moonshot.cn",
+  "chat.deepseek.com",
+  "www.doubao.com",
+  "tongyi.com",
+  "qianwen.aliyun.com",
+  "copilot.microsoft.com",
+  "claude.ai",
+  "perplexity.ai",
+  "poe.com",
+  "phind.com",
+  "you.com",
+  "metaso.cn",
+  "xinghuo.xfyun.cn",
+];
 
+const SERVER = "http://127.0.0.1:3001";
 const isTauri = typeof window.__TAURI__ !== "undefined";
+
+const state = loadState();
+applyTheme(state.theme ?? "system");
+render();
+setTimeout(loadApiKey, 2000);
+if (isTauri) {
+  initTauri();
+  updateServerStatusUI("starting");
+}
 
 async function tauriInvoke(cmd, args) {
   if (!isTauri) return null;
   return window.__TAURI__.core.invoke(cmd, args);
+}
+
+function initTauri() {
+  try {
+    window.__TAURI__.event.listen("server-log", (event) => {
+      appendServerLog(event.payload);
+      if (event.payload.includes("listening on")) {
+        updateServerStatusUI("running");
+      }
+    });
+
+    window.__TAURI__.event.listen("server-status-changed", (event) => {
+      if (event.payload === "starting") updateServerStatusUI("starting");
+      else if (event.payload === "stopped") updateServerStatusUI("stopped");
+    });
+
+    pollHealth();
+  } catch (e) {
+    console.error("Tauri init error:", e);
+  }
 }
 
 const serverLogs = [];
@@ -108,39 +171,20 @@ function updateServerStatusUI(status) {
   }
 }
 
-if (isTauri) {
-  window.__TAURI__.event.listen("server-log", (event) => {
-    appendServerLog(event.payload);
-    if (event.payload.includes("listening on")) {
-      updateServerStatusUI("running");
-    }
-  });
-
-  window.__TAURI__.event.listen("server-status-changed", (event) => {
-    if (event.payload === "starting") updateServerStatusUI("starting");
-    else if (event.payload === "stopped") updateServerStatusUI("stopped");
-  });
-
-  // Poll health to confirm running
-  async function pollHealth() {
-    for (let i = 0; i < 10; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
-      try {
-        const ok = await tauriInvoke("check_server_health");
-        if (ok) {
-          updateServerStatusUI("running");
-          return;
-        }
-      } catch {}
-    }
-    if (serverState === "starting") {
-      updateServerStatusUI("error");
-    }
+async function pollHealth() {
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      const ok = await tauriInvoke("check_server_health");
+      if (ok) {
+        updateServerStatusUI("running");
+        return;
+      }
+    } catch {}
   }
-  setTimeout(pollHealth, 1000);
-} else {
-  const card = document.getElementById("server-panel");
-  if (card) card.style.display = "none";
+  if (serverState === "starting") {
+    updateServerStatusUI("error");
+  }
 }
 
 document.getElementById("server-toggle-btn")?.addEventListener("click", async () => {
@@ -175,47 +219,6 @@ function getFullEndpoint(base) {
   if (url.endsWith("/v1")) return url + "/chat/completions";
   return url + "/v1/chat/completions";
 }
-
-const DEFAULT_ALLOWLIST_RULES = [
-  "*.edu",
-  "*.edu.cn",
-  "*.ac.*",
-  "*.google.*",
-  "*.bing.*",
-  "*.duckduckgo.*",
-  "*.ecosia.*",
-  "*.yandex.*",
-  "search.yahoo.com",
-  "www.sogou.com",
-  "www.so.com",
-  "=baidu.com",
-  "=www.baidu.com",
-  "=m.baidu.com",
-  "chatgpt.com",
-  "chat.openai.com",
-  "gemini.google.com",
-  "yuanbao.tencent.com",
-  "chatglm.cn",
-  "kimi.moonshot.cn",
-  "chat.deepseek.com",
-  "www.doubao.com",
-  "tongyi.com",
-  "qianwen.aliyun.com",
-  "copilot.microsoft.com",
-  "claude.ai",
-  "perplexity.ai",
-  "poe.com",
-  "phind.com",
-  "you.com",
-  "metaso.cn",
-  "xinghuo.xfyun.cn",
-];
-
-const state = loadState();
-
-applyTheme(state.theme ?? "system");
-render();
-setTimeout(loadApiKey, 2000);
 
 function applyTheme(theme) {
   if (theme === "system") {
@@ -465,22 +468,22 @@ function renderActivity() {
 }
 
 function loadState() {
-  const stored = localStorage.getItem("focus-guard-state");
+  try {
+    const stored = localStorage.getItem("focus-guard-state");
 
-  if (stored) {
-    try {
+    if (stored) {
       const parsed = JSON.parse(stored);
       return {
         ...parsed,
-        highRiskDomains: parsed.highRiskDomains ?? DEFAULT_DOMAINS,
-        allowlistRules: parsed.allowlistRules ?? DEFAULT_ALLOWLIST_RULES,
-        monitoredApps: parsed.monitoredApps ?? DEFAULT_APPS,
+        highRiskDomains: parsed.highRiskDomains?.length ? parsed.highRiskDomains : DEFAULT_DOMAINS,
+        allowlistRules: parsed.allowlistRules?.length ? parsed.allowlistRules : DEFAULT_ALLOWLIST_RULES,
+        monitoredApps: parsed.monitoredApps?.length ? parsed.monitoredApps : DEFAULT_APPS,
         activityLog: parsed.activityLog ?? [],
         localAi: { ...DEFAULT_LOCAL_AI, ...(parsed.localAi ?? {}) },
       };
-    } catch {
-      localStorage.removeItem("focus-guard-state");
     }
+  } catch (e) {
+    console.error("loadState error:", e);
   }
 
   return {
