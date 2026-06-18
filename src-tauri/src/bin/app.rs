@@ -20,7 +20,7 @@ fn server_exe_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
-fn start_server(app: AppHandle) -> Result<String, String> {
+fn start_server(_app: AppHandle) -> Result<String, String> {
     let mut state = SERVER.lock().map_err(|e| e.to_string())?;
     if state.child.is_some() {
         return Ok("already_running".to_string());
