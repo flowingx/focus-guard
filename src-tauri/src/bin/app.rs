@@ -1,4 +1,5 @@
-use std::process::{Child, Command};
+use std::io::{BufRead, BufReader};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
@@ -20,7 +21,7 @@ fn server_exe_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
-fn start_server(_app: AppHandle) -> Result<String, String> {
+fn start_server(app: AppHandle) -> Result<String, String> {
     let mut state = SERVER.lock().map_err(|e| e.to_string())?;
     if state.child.is_some() {
         return Ok("already_running".to_string());
@@ -31,23 +32,52 @@ fn start_server(_app: AppHandle) -> Result<String, String> {
         return Err(format!("Server not found at {}", path.display()));
     }
 
-    let child = Command::new(&path)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+    let mut child = Command::new(&path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to start server: {}", e))?;
 
     let pid = child.id();
+
+    // Spawn thread to read stderr and forward to frontend
+    if let Some(stderr) = child.stderr.take() {
+        let app_clone = app.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    let _ = app_clone.emit("server-log", line);
+                }
+            }
+        });
+    }
+
+    // Spawn thread to read stdout and forward to frontend
+    if let Some(stdout) = child.stdout.take() {
+        let app_clone = app.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    let _ = app_clone.emit("server-log", line);
+                }
+            }
+        });
+    }
+
     state.child = Some(child);
+    let _ = app.emit("server-status-changed", "starting");
     Ok(format!("started_{}", pid))
 }
 
 #[tauri::command]
-fn stop_server() -> Result<String, String> {
+fn stop_server(app: AppHandle) -> Result<String, String> {
     let mut state = SERVER.lock().map_err(|e| e.to_string())?;
     if let Some(mut child) = state.child.take() {
         let _ = child.kill();
         let _ = child.wait();
+        let _ = app.emit("server-status-changed", "stopped");
         Ok("stopped".to_string())
     } else {
         Ok("not_running".to_string())
@@ -94,14 +124,14 @@ fn main() {
             show_window,
         ])
         .setup(|app| {
-            let toggle_label = {
-                let state = SERVER.lock().unwrap();
-                if state.child.is_some() {
-                    "Stop Server"
-                } else {
-                    "Start Server"
-                }
-            };
+            // Auto-start server on launch
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let _ = start_server(app_handle.clone());
+            });
+
+            let toggle_label = "Stop Server";
 
             let show_item = MenuItemBuilder::with_id("show", "Show Window").build(app)?;
             let toggle_item = MenuItemBuilder::with_id("toggle", toggle_label).build(app)?;
@@ -116,7 +146,7 @@ fn main() {
 
             let _tray = TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip("Focus Guard")
+                .tooltip("Focus Guard - Starting...")
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
@@ -131,19 +161,15 @@ fn main() {
                         };
 
                         if running {
-                            let _ = stop_server();
+                            let _ = stop_server(app.clone());
                             let _ = toggle_item.set_text("Start Server");
                         } else {
                             let _ = start_server(app.clone());
                             let _ = toggle_item.set_text("Stop Server");
                         }
-
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.emit("server-status-changed", ());
-                        }
                     }
                     "quit" => {
-                        let _ = stop_server();
+                        let _ = stop_server(app.clone());
                         app.exit(0);
                     }
                     _ => {}

@@ -47,41 +47,123 @@ async function tauriInvoke(cmd, args) {
   return window.__TAURI__.core.invoke(cmd, args);
 }
 
-async function checkAndStartServer() {
-  if (!isTauri) return;
-  try {
-    const health = await tauriInvoke("check_server_health");
-    if (!health) {
-      await tauriInvoke("start_server");
-    }
-  } catch {}
-}
+const serverLogs = [];
+const MAX_LOG_LINES = 200;
 
-if (isTauri) {
-  checkAndStartServer();
-  window.__TAURI__.event.listen("server-status-changed", () => {
-    renderLocalAiStatus();
-    updateServerStatus();
-  });
-}
-
-async function updateServerStatus() {
-  const el = document.getElementById("server-status");
-  if (!el) return;
-  if (!isTauri) { el.style.display = "none"; return; }
-  el.style.display = "";
-  try {
-    const running = await tauriInvoke("check_server_health");
-    el.textContent = running ? "Server: ON" : "Server: OFF";
-    el.className = running ? "pill ok-pill" : "pill muted-pill";
-  } catch {
-    el.textContent = "Server: OFF";
-    el.className = "pill muted-pill";
+function appendServerLog(line) {
+  serverLogs.push(line);
+  if (serverLogs.length > MAX_LOG_LINES) serverLogs.shift();
+  const el = document.getElementById("server-logs");
+  if (el) {
+    el.textContent = serverLogs.join("\n");
+    el.scrollTop = el.scrollHeight;
   }
 }
 
-setInterval(updateServerStatus, 5000);
-updateServerStatus();
+let serverState = "starting";
+
+function updateServerStatusUI(status) {
+  serverState = status;
+  const card = document.getElementById("server-status-card");
+  const pill = document.getElementById("server-status-pill");
+  const title = document.getElementById("server-status-title");
+  const detail = document.getElementById("server-status-detail");
+  const icon = card?.querySelector(".server-status-icon");
+  const toggleBtn = document.getElementById("server-toggle-btn");
+
+  if (!card) return;
+
+  card.className = "server-status-card " + status;
+
+  if (status === "starting") {
+    pill.textContent = "启动中...";
+    pill.className = "pill muted-pill";
+    title.textContent = "正在启动后端服务...";
+    detail.textContent = "focus-guard-server.exe (端口 3001)";
+    icon.innerHTML = '<div class="spinner"></div>';
+    toggleBtn.style.display = "none";
+  } else if (status === "running") {
+    pill.textContent = "运行中";
+    pill.className = "pill ok-pill";
+    title.textContent = "后端服务运行中";
+    detail.textContent = "http://127.0.0.1:3001";
+    icon.innerHTML = '<div class="status-dot connected"></div>';
+    toggleBtn.style.display = "none";
+  } else if (status === "error") {
+    pill.textContent = "启动失败";
+    pill.className = "pill error-pill";
+    title.textContent = "后端服务启动失败";
+    detail.textContent = "请检查 focus-guard-server.exe 是否存在";
+    icon.innerHTML = '<div class="status-dot error"></div>';
+    toggleBtn.style.display = "";
+    toggleBtn.textContent = "重试";
+  } else if (status === "stopped") {
+    pill.textContent = "已停止";
+    pill.className = "pill muted-pill";
+    title.textContent = "后端服务已停止";
+    detail.textContent = "点击启动按钮重新开始";
+    icon.innerHTML = '<div class="status-dot"></div>';
+    toggleBtn.style.display = "";
+    toggleBtn.textContent = "启动";
+  }
+}
+
+if (isTauri) {
+  window.__TAURI__.event.listen("server-log", (event) => {
+    appendServerLog(event.payload);
+    if (event.payload.includes("listening on")) {
+      updateServerStatusUI("running");
+    }
+  });
+
+  window.__TAURI__.event.listen("server-status-changed", (event) => {
+    if (event.payload === "starting") updateServerStatusUI("starting");
+    else if (event.payload === "stopped") updateServerStatusUI("stopped");
+  });
+
+  // Poll health to confirm running
+  async function pollHealth() {
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        const ok = await tauriInvoke("check_server_health");
+        if (ok) {
+          updateServerStatusUI("running");
+          return;
+        }
+      } catch {}
+    }
+    if (serverState === "starting") {
+      updateServerStatusUI("error");
+    }
+  }
+  setTimeout(pollHealth, 1000);
+} else {
+  const card = document.getElementById("server-panel");
+  if (card) card.style.display = "none";
+}
+
+document.getElementById("server-toggle-btn")?.addEventListener("click", async () => {
+  if (isTauri) {
+    updateServerStatusUI("starting");
+    try {
+      await tauriInvoke("start_server");
+      setTimeout(async () => {
+        for (let i = 0; i < 10; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          const ok = await tauriInvoke("check_server_health");
+          if (ok) {
+            updateServerStatusUI("running");
+            return;
+          }
+        }
+        updateServerStatusUI("error");
+      }, 500);
+    } catch {
+      updateServerStatusUI("error");
+    }
+  }
+});
 
 function getFullEndpoint(base) {
   const url = (base || "").trim().replace(/\/+$/, "");
@@ -133,7 +215,7 @@ const state = loadState();
 
 applyTheme(state.theme ?? "system");
 render();
-loadApiKey();
+setTimeout(loadApiKey, 2000);
 
 function applyTheme(theme) {
   if (theme === "system") {
@@ -327,18 +409,6 @@ document.getElementById("export-json").addEventListener("click", () => {
   );
 });
 
-function render() {
-  document.getElementById("focus-state").textContent = state.focusMode
-    ? "专注模式开启"
-    : "专注模式关闭";
-  document.getElementById("high-risk-domains").value = state.highRiskDomains.join("\n");
-  document.getElementById("monitored-apps").value = state.monitoredApps.join("\n");
-  document.getElementById("allowlist-rules").value = state.allowlistRules.join("\n");
-  document.getElementById("local-ai-enabled").checked = state.localAi.enabled;
-  renderLocalAiStatus();
-  renderActivity();
-}
-
 function renderLocalAiStatus() {
   const status = document.getElementById("local-ai-status");
   const dot = document.getElementById("ai-status-dot");
@@ -516,8 +586,7 @@ async function detectProcrastination() {
         <div class="detect-icon">⚠️</div>
         <div class="detect-info">
           <strong>服务未连接</strong>
-          <p class="detect-reason">请先在 Windows 上启动 focus-guard-server（端口 3001）</p>
-          <p class="detect-hint">cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-server --release</p>
+          <p class="detect-reason">后端服务未启动，请等待上方服务状态变为"运行中"</p>
         </div>
       </div>
     `;
@@ -633,12 +702,6 @@ async function detectProcrastination() {
           ? "无法连接 focus-guard-server，请先在 Windows 上运行"
           : error.message || "未知错误";
 
-    const needsKey = msg.includes("服务未连接") || msg.includes("无法连接");
-    if (needsKey) {
-      document.getElementById("api-key-row").style.display = "";
-      document.getElementById("pe-save-btn").style.display = "";
-    }
-
     resultBox.className = "detect-result warn";
     resultBox.innerHTML = `
       <div class="detect-card">
@@ -646,7 +709,6 @@ async function detectProcrastination() {
         <div class="detect-info">
           <strong>AI 服务不可用</strong>
           <p class="detect-reason">${escapeHtml(msg)}</p>
-          <p class="detect-hint">确保 focus-guard-server 在运行（端口 3001），且已配置有效的 AI 供应商</p>
         </div>
       </div>
     `;

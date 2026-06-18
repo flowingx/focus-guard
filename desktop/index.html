@@ -23,13 +23,35 @@
       </div>
       <div class="status">
         <button id="theme-toggle" type="button" class="theme-toggle" title="切换深色/浅色模式">🌙</button>
-        <span id="server-status" class="pill muted-pill" style="display:none">Server: ...</span>
         <span id="focus-state">专注模式开启</span>
         <button id="toggle-focus" type="button">切换</button>
       </div>
     </header>
 
     <main class="layout">
+      <section class="panel wide" id="server-panel">
+        <div class="section-head">
+          <h2>后端服务</h2>
+          <span id="server-status-pill" class="pill muted-pill">启动中...</span>
+        </div>
+        <div id="server-status-card" class="server-status-card starting">
+          <div class="server-status-row">
+            <div class="server-status-icon">
+              <div class="spinner"></div>
+            </div>
+            <div class="server-status-info">
+              <strong id="server-status-title">正在启动后端服务...</strong>
+              <p id="server-status-detail" class="detect-hint">focus-guard-server.exe (端口 3001)</p>
+            </div>
+            <button id="server-toggle-btn" type="button" class="btn-primary" style="display:none">启动</button>
+          </div>
+        </div>
+        <details id="server-logs-section" style="margin-top:8px">
+          <summary style="cursor:pointer;color:var(--muted);font-size:13px">服务日志</summary>
+          <pre id="server-logs" class="server-logs"></pre>
+        </details>
+      </section>
+
       <section class="panel">
         <div class="section-head">
           <h2>高风险网站</h2>
