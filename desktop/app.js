@@ -82,7 +82,6 @@ render();
 setTimeout(loadApiKey, 2000);
 if (isTauri) {
   initTauri();
-  updateServerStatusUI("starting");
 }
 
 async function tauriInvoke(cmd, args) {
@@ -100,14 +99,32 @@ function initTauri() {
     });
 
     window.__TAURI__.event.listen("server-status-changed", (event) => {
+      if (!initCheckDone) return;
       if (event.payload === "starting") updateServerStatusUI("starting");
       else if (event.payload === "stopped") updateServerStatusUI("stopped");
     });
 
-    pollHealth();
+    checkServerOnInit();
   } catch (e) {
     console.error("Tauri init error:", e);
   }
+}
+
+async function checkServerOnInit() {
+  updateServerStatusUI("starting");
+  for (let i = 0; i < 15; i++) {
+    try {
+      const ok = await tauriInvoke("check_server_health");
+      if (ok) {
+        updateServerStatusUI("running");
+        initCheckDone = true;
+        return;
+      }
+    } catch {}
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  initCheckDone = true;
+  updateServerStatusUI("error");
 }
 
 const serverLogs = [];
@@ -124,6 +141,7 @@ function appendServerLog(line) {
 }
 
 let serverState = "starting";
+let initCheckDone = false;
 
 function updateServerStatusUI(status) {
   serverState = status;
@@ -172,8 +190,8 @@ function updateServerStatusUI(status) {
 }
 
 async function pollHealth() {
-  for (let i = 0; i < 10; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
+  for (let i = 0; i < 15; i++) {
+    await new Promise((r) => setTimeout(r, 300));
     try {
       const ok = await tauriInvoke("check_server_health");
       if (ok) {
@@ -192,17 +210,15 @@ document.getElementById("server-toggle-btn")?.addEventListener("click", async ()
     updateServerStatusUI("starting");
     try {
       await tauriInvoke("start_server");
-      setTimeout(async () => {
-        for (let i = 0; i < 10; i++) {
-          await new Promise((r) => setTimeout(r, 1000));
-          const ok = await tauriInvoke("check_server_health");
-          if (ok) {
-            updateServerStatusUI("running");
-            return;
-          }
+      for (let i = 0; i < 15; i++) {
+        await new Promise((r) => setTimeout(r, 300));
+        const ok = await tauriInvoke("check_server_health");
+        if (ok) {
+          updateServerStatusUI("running");
+          return;
         }
-        updateServerStatusUI("error");
-      }, 500);
+      }
+      updateServerStatusUI("error");
     } catch {
       updateServerStatusUI("error");
     }
