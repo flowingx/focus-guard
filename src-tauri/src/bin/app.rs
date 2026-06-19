@@ -45,10 +45,8 @@ fn start_server(app: AppHandle) -> Result<String, String> {
         let app_clone = app.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let _ = app_clone.emit("server-log", line);
-                }
+            for line in reader.lines().map_while(Result::ok) {
+                let _ = app_clone.emit("server-log", line);
             }
         });
     }
@@ -58,10 +56,8 @@ fn start_server(app: AppHandle) -> Result<String, String> {
         let app_clone = app.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    let _ = app_clone.emit("server-log", line);
-                }
+            for line in reader.lines().map_while(Result::ok) {
+                let _ = app_clone.emit("server-log", line);
             }
         });
     }

@@ -33,7 +33,7 @@ impl Default for ProviderConfig {
                 id: "doubao".to_string(),
                 name: "豆包 (Doubao)".to_string(),
                 base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
-                api_key: "ark-c1f4265c-3952-4872-9246-b292bc3d8944-79239".to_string(),
+                api_key: String::new(),
                 models: vec!["ep-20260617210329-lsz4k".to_string()],
                 selected_model: "ep-20260617210329-lsz4k".to_string(),
                 latency_ms: None,
@@ -102,8 +102,12 @@ fn get_ai_config() -> AiConfig {
         mode: "api".to_string(),
         endpoint: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
         model: "ep-20260617210329-lsz4k".to_string(),
-        api_key: "ark-c1f4265c-3952-4872-9246-b292bc3d8944-79239".to_string(),
+        api_key: String::new(),
     })
+}
+
+fn endpoint_requires_api_key(endpoint: &str) -> bool {
+    !(endpoint.contains("127.0.0.1") || endpoint.contains("localhost"))
 }
 
 fn main() {
@@ -433,21 +437,8 @@ fn parse_curl(curl: &str) -> Option<(String, String, String)> {
         }
         if (p == "-d" || p == "--data" || p == "-d'{") && i + 1 < args.len() {
             let data = &args[i + 1];
-            if let Some(idx) = data.find("model") {
-                let rest = &data[idx..];
-                if let Some(cp) = rest.find(':') {
-                    let after = rest[cp + 1..].trim_start();
-                    let val = if let Some(stripped) = after.strip_prefix('"') {
-                        stripped.strip_suffix('"')
-                    } else if let Some(stripped) = after.strip_prefix('\'') {
-                        stripped.strip_suffix('\'')
-                    } else {
-                        after.split([',', '}', ' ']).next()
-                    };
-                    if let Some(v) = val {
-                        if !v.is_empty() { model = v.to_string(); }
-                    }
-                }
+            if let Some(parsed_model) = extract_model_from_data(data) {
+                model = parsed_model;
             }
         }
         i += 1;
@@ -455,6 +446,28 @@ fn parse_curl(curl: &str) -> Option<(String, String, String)> {
     if base_url.is_empty() { return None; }
     let base = base_url.trim_end_matches('/').trim_end_matches("/v1/chat/completions").trim_end_matches("/v1").trim_end_matches('/');
     Some((base.to_string(), api_key, model))
+}
+
+fn extract_model_from_data(data: &str) -> Option<String> {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(data.trim()) {
+        return value
+            .get("model")
+            .and_then(|model| model.as_str())
+            .filter(|model| !model.is_empty())
+            .map(|model| model.to_string());
+    }
+
+    let idx = data.find("model")?;
+    let rest = &data[idx..];
+    let cp = rest.find(':')?;
+    let after = rest[cp + 1..].trim_start();
+    let value = after
+        .trim_matches(['"', '\''])
+        .split([',', '}', ' '])
+        .next()?
+        .trim_matches(['"', '\'']);
+
+    if value.is_empty() { None } else { Some(value.to_string()) }
 }
 
 fn shell_split(s: &str) -> Vec<String> {
@@ -742,6 +755,13 @@ fn handle_detect() -> Result<String, String> {
 
     let config = {
         let ai = get_ai_config();
+        if endpoint_requires_api_key(&ai.endpoint) && ai.api_key.trim().is_empty() {
+            return Ok(detect_error_response(
+                &foreground,
+                screenshot_b64.as_ref(),
+                "missing_api_key",
+            ));
+        }
         let endpoint = if ai.endpoint.contains("ark.cn-beijing.volces.com") {
             format!("{}/responses", ai.endpoint.trim_end_matches('/'))
         } else {
@@ -778,6 +798,23 @@ fn handle_detect() -> Result<String, String> {
     Ok(result)
 }
 
+fn detect_error_response(
+    foreground: &focus_guard_desktop::ForegroundWindow,
+    screenshot_b64: Option<&String>,
+    error: &str,
+) -> String {
+    let screenshot_len = screenshot_b64.map(|s| s.len()).unwrap_or(0);
+    format!(
+        r#"{{"category":"unknown","confidence":0,"reason":"{}","suggested_action":"none","process_name":"{}","window_title":"{}","has_screenshot":{},"screenshot_bytes":{},"error":"{}"}}"#,
+        json_esc(error),
+        json_esc(&foreground.process_name),
+        json_esc(&foreground.window_title),
+        screenshot_b64.is_some(),
+        screenshot_len,
+        json_esc(error),
+    )
+}
+
 fn handle_validate_reason(body: &str) -> Result<String, String> {
     let reason = extract_json_string(body, "reason").unwrap_or_default();
     let target = extract_json_string(body, "target").unwrap_or_default();
@@ -792,6 +829,9 @@ fn handle_validate_reason(body: &str) -> Result<String, String> {
     );
 
     let config = get_ai_config();
+    if endpoint_requires_api_key(&config.endpoint) && config.api_key.trim().is_empty() {
+        return Ok(r#"{"approved":true,"message":"验证服务未配置，已放行"}"#.to_string());
+    }
     let endpoint = if config.endpoint.contains("ark.cn-beijing.volces.com") {
         format!("{}/responses", config.endpoint.trim_end_matches('/'))
     } else {
@@ -913,4 +953,65 @@ fn json_esc(s: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{detect_error_response, endpoint_requires_api_key, handle_validate_reason, parse_curl};
+
+    #[test]
+    fn parse_curl_extracts_bearer_key_and_json_model() {
+        let parsed = parse_curl(
+            r#"curl https://api.openai.com/v1/chat/completions -H "Authorization: Bearer sk-test" -H "Content-Type: application/json" -d '{"model":"gpt-4o-mini","messages":[]}'"#,
+        )
+        .unwrap();
+
+        assert_eq!(parsed.0, "https://api.openai.com");
+        assert_eq!(parsed.1, "sk-test");
+        assert_eq!(parsed.2, "gpt-4o-mini");
+    }
+
+    #[test]
+    fn parse_curl_extracts_single_quoted_bearer_header() {
+        let parsed = parse_curl(
+            r#"curl https://example.com/v1/chat/completions -H 'Authorization: Bearer sk-single' --data '{"model":"custom-model"}'"#,
+        )
+        .unwrap();
+
+        assert_eq!(parsed.0, "https://example.com");
+        assert_eq!(parsed.1, "sk-single");
+        assert_eq!(parsed.2, "custom-model");
+    }
+
+    #[test]
+    fn remote_endpoint_requires_api_key_but_local_endpoint_does_not() {
+        assert!(endpoint_requires_api_key("https://ark.cn-beijing.volces.com/api/v3"));
+        assert!(!endpoint_requires_api_key("http://127.0.0.1:8080/v1/chat/completions"));
+        assert!(!endpoint_requires_api_key("http://localhost:8080/v1/chat/completions"));
+    }
+
+    #[test]
+    fn detect_error_response_reports_missing_api_key_with_context() {
+        let foreground = focus_guard_desktop::ForegroundWindow {
+            process_id: 1,
+            process_name: "chrome.exe".to_string(),
+            window_title: "Focus Guard".to_string(),
+        };
+        let screenshot = "abc".to_string();
+        let response = detect_error_response(&foreground, Some(&screenshot), "missing_api_key");
+
+        assert!(response.contains(r#""category":"unknown""#));
+        assert!(response.contains(r#""error":"missing_api_key""#));
+        assert!(response.contains(r#""process_name":"chrome.exe""#));
+        assert!(response.contains(r#""has_screenshot":true"#));
+    }
+
+    #[test]
+    fn validate_reason_allows_when_remote_api_key_is_missing() {
+        let response = handle_validate_reason(r#"{"reason":"查学习资料","target":"bilibili.com"}"#)
+            .unwrap();
+
+        assert!(response.contains(r#""approved":true"#));
+        assert!(response.contains("验证服务未配置"));
+    }
 }

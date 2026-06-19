@@ -106,7 +106,7 @@ fn activity_records_can_be_appended_to_jsonl() {
 }
 
 #[test]
-fn local_ai_is_disabled_by_default() {
+fn local_ai_defaults_to_configured_provider() {
     let config = LocalAiConfig::default();
 
     assert_eq!(config.enabled, true);
