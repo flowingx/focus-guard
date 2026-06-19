@@ -36,7 +36,7 @@ test("tauri config names the desktop assistant", async () => {
   const config = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"));
 
   assert.equal(config.productName, "Focus Guard");
-  assert.equal(config.identifier, "com.focus-guard.desktop");
+  assert.equal(config.identifier, "com.focusguard.app");
 });
 
 test("desktop UI exposes monitored apps, domains, export, and session review controls", async () => {
@@ -60,6 +60,30 @@ test("desktop UI exposes optional local AI settings", async () => {
   assert.match(js, /ep-20260617210329-lsz4k/);
   assert.match(js, /ark\.cn-beijing\.volces\.com/);
   assert.match(js, /loadApiKey/);
+});
+
+test("desktop detect shows API key prompt for missing key errors", async () => {
+  const js = await readFile("desktop/app.js", "utf8");
+
+  assert.match(js, /missing_api_key/);
+  assert.match(js, /api-key-row/);
+  assert.match(js, /pe-save-btn/);
+  assert.match(js, /请在上方输入 API Key 并点击保存/);
+});
+
+test("default AI configuration does not ship with an API key", async () => {
+  const files = [
+    "desktop/app.js",
+    "src-tauri/src/bin/server.rs",
+    "src-tauri/src/lib.rs",
+    "AI-CONFIG.md",
+    "AGENTS.md",
+  ];
+
+  for (const file of files) {
+    const content = await readFile(file, "utf8");
+    assert.doesNotMatch(content, /ark-[A-Za-z0-9-]{20,}/, file);
+  }
 });
 
 test("escapeHtml escapes ampersand", () => {

@@ -7,6 +7,10 @@ const quickUrl = document.getElementById("quick-url");
 const addQuickControl = document.getElementById("add-quick-control");
 const addQuickAllow = document.getElementById("add-quick-allow");
 const undoLastRule = document.getElementById("undo-last-rule");
+const checkAiHealth = document.getElementById("check-ai-health");
+const runAiDetect = document.getElementById("run-ai-detect");
+const clearAiLog = document.getElementById("clear-ai-log");
+const aiDetectLog = document.getElementById("ai-detect-log");
 const status = document.getElementById("settings-status");
 
 init();
@@ -19,6 +23,7 @@ async function init() {
   defaultMinutes.value = config.defaultMinutes ?? 20;
   highRiskDomains.value = (config.highRiskDomains ?? []).join("\n");
   allowlistRules.value = (config.allowlistRules ?? []).join("\n");
+  await loadAiDetectLog();
 }
 
 form.addEventListener("submit", async (event) => {
@@ -59,6 +64,96 @@ undoLastRule.addEventListener("click", async () => {
 
   status.textContent = "没有可撤销的新网站分类";
 });
+
+checkAiHealth.addEventListener("click", async () => {
+  status.textContent = "正在检查服务...";
+  const response = await chrome.runtime.sendMessage({ type: "check_ai_server_health" });
+  status.textContent = aiHealthStatusMessage(response);
+});
+
+runAiDetect.addEventListener("click", async () => {
+  status.textContent = "正在检测...";
+  const response = await chrome.runtime.sendMessage({ type: "run_ai_detect_now" });
+  await loadAiDetectLog();
+  status.textContent = aiDetectStatusMessage(response);
+});
+
+clearAiLog.addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ type: "clear_ai_detect_log" });
+  await loadAiDetectLog();
+  status.textContent = "AI 检测日志已清空";
+});
+
+async function loadAiDetectLog() {
+  const response = await chrome.runtime.sendMessage({ type: "get_ai_detect_log" });
+  const log = response?.log ?? [];
+
+  if (!log.length) {
+    aiDetectLog.textContent = "暂无检测记录";
+    return;
+  }
+
+  aiDetectLog.textContent = log.map(formatAiDetectLogEntry).join("\n");
+}
+
+function formatAiDetectLogEntry(entry) {
+  const time = entry.timestamp
+    ? new Date(entry.timestamp).toLocaleString()
+    : "unknown time";
+  const bits = [
+    time,
+    entry.source,
+    entry.status,
+    entry.error,
+    entry.category,
+    entry.confidence == null ? "" : `confidence=${entry.confidence}`,
+    entry.reason,
+    entry.process,
+    entry.window,
+  ];
+
+  return bits.filter(Boolean).join(" | ");
+}
+
+function aiDetectStatusMessage(result) {
+  if (!result?.ok) {
+    return "检测失败";
+  }
+
+  if (result.status === "ok") {
+    return "检测完成：未触发干预";
+  }
+
+  if (result.status === "interference_shown") {
+    return "检测完成：已显示干预";
+  }
+
+  if (result.status === "no_http_tab") {
+    return "没有可检测的网页标签";
+  }
+
+  if (result.status === "server_error") {
+    return `检测完成：服务端错误 ${result.error ?? ""}`.trim();
+  }
+
+  if (result.status === "http_error" || result.status === "request_failed") {
+    return `检测完成：请求失败 ${result.error ?? ""}`.trim();
+  }
+
+  if (result.status === "inject_failed") {
+    return `检测完成：干预注入失败 ${result.error ?? ""}`.trim();
+  }
+
+  return "检测完成";
+}
+
+function aiHealthStatusMessage(result) {
+  if (result?.ok) {
+    return "服务正常";
+  }
+
+  return `服务不可用 ${result?.error ?? ""}`.trim();
+}
 
 function splitLines(value) {
   return value

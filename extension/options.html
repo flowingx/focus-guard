@@ -50,6 +50,23 @@
           </button>
           <p id="settings-status" class="status" role="status"></p>
         </form>
+        <section class="debug-panel" aria-label="AI 检测日志">
+          <div class="debug-header">
+            <h2>AI 检测日志</h2>
+            <div class="debug-actions">
+              <button id="check-ai-health" class="secondary-action" type="button">
+                检查服务
+              </button>
+              <button id="run-ai-detect" class="primary-action" type="button">
+                立即检测
+              </button>
+              <button id="clear-ai-log" class="secondary-action" type="button">
+                清空日志
+              </button>
+            </div>
+          </div>
+          <pre id="ai-detect-log" class="debug-log">加载中...</pre>
+        </section>
       </section>
     </main>
     <script src="options.js"></script>

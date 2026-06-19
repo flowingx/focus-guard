@@ -164,22 +164,19 @@ netsh advfirewall firewall add rule name=FocusGuard-3001 dir=in action=allow pro
 
 ### P0 - Critical
 
-1. **server.rs 编译错误**: `parse_curl` 函数有未闭合的花括号，导致编译失败。需要检查并修复 `handle_parse_config` 和 `parse_curl` 函数的花括号匹配。
-2. **CORS 检测失败**: 扩展的 `triggerAiDetect` 通过 `fetch("http://127.0.0.1:3001/detect")` 调用服务器，但从扩展 service worker 发出的跨域请求可能被拦截。需要测试扩展是否能正常调用服务器端点。
+No known P0 items after the current build/test baseline.
 
 ### P1 - Important
 
-3. **Curl 解析 API Key 提取**: `parse_curl` 中 shell 引号处理不完整，导致 `Authorization: Bearer xxx` 中的 key 无法正确提取。`shell_split` 函数已实现但需验证。
-4. **分屏检测 AI 准确性**: 4B 小模型在分屏场景（左视频右学习）下仍可能误判为 study。需要更强的 prompt 或换用更大的视觉模型。
-5. **强制干预流程**: `interference.js` 和 `interference.css` 已创建，但尚未完整测试。扩展的 `scripting.insertCSS` + `scripting.executeScript` 注入遮罩流程需要端到端验证。
-6. **强制关闭页面**: `chrome.tabs.remove(tabId)` 可以关闭标签页，但 `interference.js` 中的 `close_current_tab` 消息处理需要验证是否能正确关闭页面。
+1. **扩展 detect 端到端验证**: `triggerAiDetect` 的 fetch、错误日志、`scripting.insertCSS` + `scripting.executeScript` 注入流程已有 VM 行为测试保护；options 页也提供“检查服务”“立即检测”和最近 AI 检测日志。但仍需要在真实 Chrome extension service worker 中验证 `http://127.0.0.1:3001/detect` 调用、CORS、截图服务器返回和遮罩注入。
+2. **分屏检测 AI 准确性**: 4B 小模型在分屏场景（左视频右学习）下仍可能误判为 study。需要更强的 prompt 或换用更大的视觉模型。
+3. **强制干预流程真实验证**: `interference.js` 放行后创建短会话、注入失败日志、理由验证服务不可用时放行等已有自动化测试；仍需在真实网页中验证遮罩显示、按钮交互和样式覆盖。
+4. **强制关闭页面真实验证**: `close_current_tab` 成功/失败返回和页面提示已有 VM 行为测试；仍需在真实 Chrome 标签页中验证 `chrome.tabs.remove(tabId)` 的关闭效果。
 
 ### P2 - Nice to Have
 
-7. **深色模式切换**: CSS 使用 `[data-theme="dark"]` 和 `@media (prefers-color-scheme: dark)` 双重机制，但需验证手动切换是否正常工作。
-8. **供应商配置持久化**: 保存到 `AppData\Local\FocusGuard\providers.json`，但首次使用时目录可能不存在，需确保 `create_dir_all` 正常工作。
-9. **WSL 无法直连 Windows**: WSL 通过 `172.21.208.1:3001` 连接 Windows 超时。需要确认防火墙规则是否正确生效。
-10. **server.rs `post_json` 函数**: `lib.rs` 中旧的 `post_json` 函数可能已不再使用，应清理。
+5. **深色模式切换**: CSS 使用 `[data-theme="dark"]` 和 `@media (prefers-color-scheme: dark)` 双重机制，但需验证手动切换是否正常工作。
+6. **WSL 无法直连 Windows**: WSL 通过 `172.21.208.1:3001` 连接 Windows 超时。需要确认防火墙规则是否正确生效。
 
 ## Model Setup Notes
 

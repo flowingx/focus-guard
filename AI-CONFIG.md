@@ -19,6 +19,12 @@
 | 响应解析 | `choices[0].message.content` | `response` 字段 |
 | /no_think | system prompt 必须以 `/no_think` 开头，否则 Qwen3 thinking 模式会消耗所有 token，content 为空 | 不加会导致"输出异常" |
 
+## API Key
+
+- 默认配置不能提交真实 API Key。
+- 远程供应商 Key 只能通过桌面 UI 保存到本机配置，或通过本地环境变量/本地配置注入。
+- 源码、README、AGENTS、测试文件中不要出现 `ark-...`、`sk-...` 等真实密钥。
+
 ## 常见报错及原因
 
 | 错误信息 | 原因 | 修复 |

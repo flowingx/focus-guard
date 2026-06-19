@@ -11,11 +11,8 @@
     "找灵感",
   ];
 
-  let currentTabId = null;
-
   chrome.runtime.sendMessage({ type: "get_ai_detect_context" }, (ctx) => {
     if (chrome.runtime.lastError || !ctx) return;
-    currentTabId = ctx.tabId;
     showOverlay(ctx);
   });
 
@@ -80,9 +77,28 @@
           }
 
           if (resp.approved) {
-            status.textContent = "✅ 理由通过，放行 10 分钟";
-            status.className = "fg-ai-status fg-approved";
-            setTimeout(() => overlay.remove(), 2000);
+            chrome.runtime.sendMessage(
+              {
+                type: "submit_intent",
+                target: ctx.target,
+                reason,
+                minutes: 10,
+                category: "study",
+                expiryAction: "check_in",
+                saveCandidate: false,
+              },
+              (intentResp) => {
+                if (chrome.runtime.lastError || !intentResp?.ok) {
+                  status.textContent = "放行失败，请重试";
+                  status.className = "fg-ai-status fg-rejected";
+                  return;
+                }
+
+                status.textContent = "✅ 理由通过，放行 10 分钟";
+                status.className = "fg-ai-status fg-approved";
+                setTimeout(() => overlay.remove(), 2000);
+              },
+            );
           } else {
             status.textContent = "❌ " + (resp.message || "理由不合理，页面将被关闭");
             status.className = "fg-ai-status fg-rejected";
@@ -95,7 +111,12 @@
     });
 
     closeBtn.addEventListener("click", () => {
-      chrome.runtime.sendMessage({ type: "close_current_tab" });
+      chrome.runtime.sendMessage({ type: "close_current_tab" }, (resp) => {
+        if (chrome.runtime.lastError || !resp?.ok) {
+          status.textContent = "关闭失败，请手动关闭此标签页";
+          status.className = "fg-ai-status fg-rejected";
+        }
+      });
     });
 
     input.focus();

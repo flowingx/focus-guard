@@ -313,6 +313,48 @@ button[type="submit"] {
   font-weight: 700;
 }
 
+.debug-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.debug-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.debug-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.debug-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.debug-log {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--input);
+  color: var(--ink);
+  font: 13px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 520px) {
   .prompt {
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04), 6px 6px 0 var(--shadow);
@@ -328,5 +370,14 @@ button[type="submit"] {
 
   .quick-actions {
     grid-template-columns: 1fr;
+  }
+
+  .debug-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .debug-actions {
+    flex-direction: column;
   }
 }

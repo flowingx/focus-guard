@@ -126,6 +126,7 @@ const VIDEO_DOMAINS = [
 const NATIVE_HOST = "com.focus_guard.desktop";
 const TEMPORARY_ALLOW_MINUTES = 30;
 const AI_DETECT_URL = "http://127.0.0.1:3001/detect";
+const AI_HEALTH_URL = "http://127.0.0.1:3001/health";
 const AI_DETECT_ALARM = "ai_periodic_detect";
 const AI_DETECT_COOLDOWN_MS = 30_000;
 let lastAiDetectTime = 0;
@@ -338,7 +339,10 @@ async function handleMessage(message, sender) {
   }
 
   if (message.type === "submit_intent") {
-    await storeIntent(message, sender);
+    const result = await storeIntent(message, sender);
+    if (!result.ok) {
+      return result;
+    }
     notifyDesktop({
       type: "intent_submitted",
       target: message.target,
@@ -349,16 +353,15 @@ async function handleMessage(message, sender) {
   }
 
   if (message.type === "extend_session") {
-    await storeIntent(message, sender);
-    return { ok: true };
+    return storeIntent(message, sender);
   }
-
   if (message.type === "close_current_tab") {
-    if (sender?.tab?.id) {
-      await safeTabRemove(sender.tab.id);
+    if (!sender?.tab?.id) {
+      return { ok: false, error: "tab_not_found" };
     }
 
-    return { ok: true };
+    const closed = await safeTabRemove(sender.tab.id);
+    return closed ? { ok: true } : { ok: false, error: "tab_close_failed" };
   }
 
   if (message.type === "add_unknown_site_decision") {
@@ -368,6 +371,25 @@ async function handleMessage(message, sender) {
   if (message.type === "get_ai_detect_context") {
     const { aiDetectContext = null } = await chrome.storage.local.get("aiDetectContext");
     return aiDetectContext;
+  }
+
+  if (message.type === "get_ai_detect_log") {
+    const { aiDetectLog = [] } = await chrome.storage.local.get("aiDetectLog");
+    return { log: aiDetectLog.slice(-20).reverse() };
+  }
+
+  if (message.type === "clear_ai_detect_log") {
+    await chrome.storage.local.set({ aiDetectLog: [] });
+    return { ok: true };
+  }
+
+  if (message.type === "run_ai_detect_now") {
+    const result = await triggerAiDetect("manual", { force: true, preferAnyHttpTab: true });
+    return { ok: true, ...result };
+  }
+
+  if (message.type === "check_ai_server_health") {
+    return checkAiServerHealth();
   }
 
   if (message.type === "validate_distraction_reason") {
@@ -518,14 +540,19 @@ async function storeIntent(message, sender) {
     "activityLog",
   ]);
   const now = Date.now();
+  const target = String(message.target ?? "").trim();
+  if (!target) return { ok: false, error: "target_required" };
   const reason = String(message.reason ?? "").trim();
-  if (!reason) return { ok: false };
+  if (!reason) return { ok: false, error: "reason_required" };
   const minutes = Number(message.minutes);
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return { ok: false, error: "minutes_must_be_positive" };
+  }
   const category = message.category ?? "study";
   const expiryAction = message.expiryAction ?? expiryActionForCategory(category);
 
   if (message.saveCandidate) {
-    const targetCandidates = candidates[message.target] ?? [];
+    const targetCandidates = candidates[target] ?? [];
     const existing = targetCandidates.find((candidate) => candidate.reason === reason);
 
     if (existing) {
@@ -547,12 +574,12 @@ async function storeIntent(message, sender) {
       });
     }
 
-    candidates[message.target] = targetCandidates;
+    candidates[target] = targetCandidates;
   }
 
   const expiresAt = now + minutes * 60 * 1000;
 
-  sessions[message.target] = {
+  sessions[target] = {
     reason,
     category,
     expiryAction,
@@ -565,7 +592,7 @@ async function storeIntent(message, sender) {
   activityLog.push({
     timestamp: now,
     type: "intent_submitted",
-    target: message.target,
+    target,
     reason,
     category,
     expiryAction,
@@ -573,7 +600,8 @@ async function storeIntent(message, sender) {
   });
 
   await chrome.storage.local.set({ candidates, sessions, activityLog });
-  chrome.alarms.create(`session:${message.target}`, { when: expiresAt });
+  chrome.alarms.create(`session:${target}`, { when: expiresAt });
+  return { ok: true };
 }
 
 function visibleCandidates(target, candidates) {
@@ -719,8 +747,10 @@ async function safeTabUpdate(tabId, updateProperties) {
 async function safeTabRemove(tabId) {
   try {
     await chrome.tabs.remove(tabId);
+    return true;
   } catch {
     // The user may have already closed the tab before the expiry alarm fires.
+    return false;
   }
 }
 
@@ -752,18 +782,48 @@ function notifyDesktop(message) {
   }
 }
 
-async function triggerAiDetect(source) {
+async function recordAiDetectLog(entry) {
+  try {
+    const { aiDetectLog = [] } = await chrome.storage.local.get("aiDetectLog");
+    aiDetectLog.push(entry);
+    if (aiDetectLog.length > 200) {
+      aiDetectLog.splice(0, aiDetectLog.length - 200);
+    }
+    await chrome.storage.local.set({ aiDetectLog });
+  } catch {
+    // Detection logging should never break browsing or intervention flow.
+  }
+}
+
+async function recordAiDetectResult(entry) {
+  await recordAiDetectLog(entry);
+  return entry;
+}
+
+async function triggerAiDetect(source, options = {}) {
   const now = Date.now();
-  if (now - lastAiDetectTime < AI_DETECT_COOLDOWN_MS) {
-    return;
+  if (!options.force && now - lastAiDetectTime < AI_DETECT_COOLDOWN_MS) {
+    return { status: "cooldown" };
   }
   lastAiDetectTime = now;
 
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    const tab = tabs[0];
+    let tab = tabs[0];
+    if (options.preferAnyHttpTab && (!tab?.url || !tab.url.startsWith("http"))) {
+      const windowTabs = await chrome.tabs.query({ currentWindow: true });
+      tab = windowTabs.find((candidate) => candidate.url?.startsWith("http"));
+    }
     if (!tab || !tab.url || !tab.url.startsWith("http")) {
-      return;
+      if (options.preferAnyHttpTab) {
+        return recordAiDetectResult({
+          timestamp: now,
+          source,
+          status: "no_http_tab",
+          error: "No detectable http tab in the current window",
+        });
+      }
+      return { status: "no_http_tab" };
     }
 
     const response = await fetch(AI_DETECT_URL, {
@@ -774,13 +834,25 @@ async function triggerAiDetect(source) {
     });
 
     if (!response.ok) {
-      return;
+      return recordAiDetectResult({
+        timestamp: now,
+        source,
+        status: "http_error",
+        error: `HTTP ${response.status}`,
+      });
     }
 
     const result = await response.json();
 
     if (result.error) {
-      return;
+      return recordAiDetectResult({
+        timestamp: now,
+        source,
+        status: "server_error",
+        error: result.error,
+        process: result.process_name,
+        window: result.window_title,
+      });
     }
 
     const isDistracting = result.category === "distracting" || result.category === "distraction";
@@ -796,32 +868,66 @@ async function triggerAiDetect(source) {
         },
       });
 
-      await chrome.scripting.insertCSS({
-        files: ["interference.css"],
-        target: { tabId: tab.id },
-      });
-      await chrome.scripting.executeScript({
-        files: ["interference.js"],
-        target: { tabId: tab.id },
-      });
+      try {
+        await chrome.scripting.insertCSS({
+          files: ["interference.css"],
+          target: { tabId: tab.id },
+        });
+        await chrome.scripting.executeScript({
+          files: ["interference.js"],
+          target: { tabId: tab.id },
+        });
+      } catch (error) {
+        return recordAiDetectResult({
+          timestamp: now,
+          source,
+          status: "inject_failed",
+          error: error?.message ?? "Failed to inject interference overlay",
+          category: result.category,
+          confidence: result.confidence,
+          reason: result.reason,
+          process: result.process_name,
+          window: result.window_title,
+        });
+      }
     }
 
-    const { aiDetectLog = [] } = await chrome.storage.local.get("aiDetectLog");
-    aiDetectLog.push({
+    return recordAiDetectResult({
       timestamp: now,
       source,
+      status: isDistracting ? "interference_shown" : "ok",
       category: result.category,
       confidence: result.confidence,
       reason: result.reason,
       process: result.process_name,
       window: result.window_title,
     });
-    if (aiDetectLog.length > 200) {
-      aiDetectLog.splice(0, aiDetectLog.length - 200);
+  } catch (error) {
+    return recordAiDetectResult({
+      timestamp: now,
+      source,
+      status: "request_failed",
+      error: error?.message ?? "AI detect request failed",
+    });
+  }
+}
+
+async function checkAiServerHealth() {
+  try {
+    const response = await fetch(AI_HEALTH_URL, {
+      method: "GET",
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      return { ok: false, error: `HTTP ${response.status}` };
     }
-    await chrome.storage.local.set({ aiDetectLog });
-  } catch {
-    // Server not running or network error — silently ignore.
+
+    const result = await response.json();
+    return result.ok === true
+      ? { ok: true }
+      : { ok: false, error: "Server health response was not ok" };
+  } catch (error) {
+    return { ok: false, error: error?.message ?? "Health check failed" };
   }
 }
 

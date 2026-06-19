@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Focus Guard — 测试报告 2026-06-12</title>
+<title>Focus Guard — 测试报告 2026-06-19</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.6; }
@@ -43,15 +43,15 @@
 <div class="container">
 
 <h1>Focus Guard — 测试报告</h1>
-<p class="subtitle">生成时间：2026-06-12 | 项目路径：F:\X_code\Projects\agent\focus-guard</p>
+<p class="subtitle">生成时间：2026-06-19 | 项目路径：F:\X_code\Projects\agent\focus-guard</p>
 
 <div class="summary-grid">
   <div class="summary-card">
-    <div class="number pass">119</div>
+    <div class="number pass">144</div>
     <div class="label">总测试数</div>
   </div>
   <div class="summary-card">
-    <div class="number pass">119</div>
+    <div class="number pass">144</div>
     <div class="label">通过</div>
   </div>
   <div class="summary-card">
@@ -59,7 +59,7 @@
     <div class="label">失败</div>
   </div>
   <div class="summary-card">
-    <div class="number add">+79</div>
+    <div class="number add">+99</div>
     <div class="label">相比优化前新增</div>
   </div>
 </div>
@@ -72,10 +72,12 @@
     </thead>
     <tbody>
       <tr><td>JS — policy.test.js</td><td>15</td><td>31</td><td>+16</td><td class="status-ok">✅ 全部通过</td></tr>
-      <tr><td>JS — extension.test.js</td><td>12</td><td>12</td><td>0</td><td class="status-ok">✅ 全部通过</td></tr>
-      <tr><td>JS — desktop-ui.test.js</td><td>3</td><td>17</td><td>+14</td><td class="status-ok">✅ 全部通过</td></tr>
+      <tr><td>JS — extension.test.js</td><td>12</td><td>17</td><td>+5</td><td class="status-ok">✅ 全部通过</td></tr>
+      <tr><td>JS — background-behavior.test.js</td><td>0</td><td>13</td><td>+13</td><td class="status-ok">✅ 全部通过</td></tr>
+      <tr><td>JS — desktop-ui.test.js</td><td>3</td><td>19</td><td>+16</td><td class="status-ok">✅ 全部通过</td></tr>
+      <tr><td>Rust — server.rs</td><td>0</td><td>5</td><td>+5</td><td class="status-ok">✅ 全部通过</td></tr>
       <tr><td>Rust — desktop_policy.rs</td><td>15</td><td>59</td><td>+44</td><td class="status-ok">✅ 全部通过</td></tr>
-      <tr style="font-weight:700; background:#172032"><td>总计</td><td>45</td><td>119</td><td>+74</td><td class="status-ok">✅ 119/119</td></tr>
+      <tr style="font-weight:700; background:#172032"><td>总计</td><td>45</td><td>144</td><td>+99</td><td class="status-ok">✅ 144/144</td></tr>
     </tbody>
   </table>
 </div>
@@ -141,15 +143,17 @@
 </div>
 
 <div class="section">
-  <h2 class="section-title">测试详情 — Rust（59 项）</h2>
+  <h2 class="section-title">测试详情 — Rust（64 项）</h2>
   <div class="code-block">
+<span class="pass">server.rs: 5 passed; 0 failed; 0 ignored</span>
 <span class="pass">test result: ok. 59 passed; 0 failed; 0 ignored</span>
 
 分类覆盖：
+  • server.rs          — 5 项（API key 缺失、detect 错误响应、curl 解析、校验降级）
   • json_escape         — 7 项（\r, \t, \n, \, ", 组合, 无特殊字符）
   • csv_escape          — 5 项（\r, 逗号, 引号, 换行, 组合）
   • classify_context    — 6 项（study/work/distraction/unknown/malformed/empty）
-  • parse_http_endpoint — 5 项（默认端口/自定义端口/无路径/拒绝 HTTPS/拒绝非 localhost）
+  • parse_http_endpoint — 5 项（默认端口/自定义端口/无路径/接受非 localhost/拒绝 HTTPS）
   • matches_host_rule   — 7 项（精确/通配符/大小写/空规则/嵌套 www）
   • strip_www           — 3 项（去除/保留/嵌套）
   • is_target_allowlisted — 4 项（域名/应用/未知域名/未知应用）
@@ -160,14 +164,15 @@
 </div>
 
 <div class="section">
-  <h2 class="section-title">测试详情 — JavaScript（60 项）</h2>
+  <h2 class="section-title">测试详情 — JavaScript（80 项）</h2>
   <div class="code-block">
-<span class="pass"># tests 60 | pass 60 | fail 0 | duration_ms 39.47</span>
+<span class="pass"># tests 80 | pass 80 | fail 0 | duration_ms 77.8314</span>
 
 分类覆盖：
   • policy.test.js      — 31 项（domain matching, sessions, candidates, submitCustomIntent）
-  • extension.test.js   — 12 项（manifest, interstitial, alarms, icons, pages, options）
-  • desktop-ui.test.js  — 17 项（HTML structure, Tauri config, escapeHtml, parseAnalysisResult）
+  • extension.test.js   — 17 项（manifest, interstitial, alarms, icons, pages, options, AI detect diagnostics）
+  • background-behavior.test.js — 13 项（message validation, close tab, health check, manual detect, detect logging）
+  • desktop-ui.test.js  — 19 项（HTML structure, Tauri config, missing API key state, escapeHtml, parseAnalysisResult）
   </div>
 </div>
 
@@ -178,16 +183,16 @@
       <tr><th>检查项</th><th>结果</th></tr>
     </thead>
     <tbody>
-      <tr><td>cargo test</td><td class="status-ok">✅ 59/59 通过，0 warnings</td></tr>
+      <tr><td>cargo test</td><td class="status-ok">✅ 64/64 通过，0 warnings</td></tr>
       <tr><td>cargo build --release</td><td class="status-ok">✅ 构建成功</td></tr>
-      <tr><td>node tests/run.js</td><td class="status-ok">✅ 60/60 通过</td></tr>
+      <tr><td>node tests/run.js</td><td class="status-ok">✅ 80/80 通过</td></tr>
       <tr><td>Compiler warnings</td><td class="status-ok">✅ 0 warnings（已清理）</td></tr>
     </tbody>
   </table>
 </div>
 
 <div class="footer">
-  Focus Guard Test Report — Generated by MiMoCode Agent — 2026-06-12
+  Focus Guard Test Report — Generated by Codex — 2026-06-19
 </div>
 
 </div>

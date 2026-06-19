@@ -126,6 +126,28 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-native-host --r
 2. 开启「开发者模式」
 3. 点击「加载已解压的扩展程序」，选择 `extension/` 文件夹
 
+### 扩展端到端验证
+
+加载扩展后，可在扩展的「详细信息」页打开「扩展程序选项」：
+
+1. 点击「检查服务」，预期显示「服务正常」。
+2. 打开一个普通网页标签页，例如 `https://example.com`。
+3. 回到扩展选项页，点击「立即检测」。
+4. 查看「AI 检测日志」：
+   - `ok`：检测请求成功，未触发干预。
+   - `interference_shown`：检测到分心并已注入遮罩。
+   - `server_error` / `http_error` / `request_failed`：后端服务或网络请求异常。
+   - `inject_failed`：遮罩脚本或 CSS 注入失败。
+   - `no_http_tab`：当前窗口没有可检测的网页标签。
+
+建议记录以下证据，便于后续排查：
+
+- 「检查服务」状态文本。
+- 「立即检测」后的状态文本。
+- 「AI 检测日志」最新一行。
+- 如果出现遮罩，记录遮罩是否显示、放行按钮是否创建短会话、关闭按钮是否关闭标签页。
+- 如果失败，记录日志中的 `status` 和 `error` 字段。
+
 ### 第五步：打开桌面 UI
 
 **Windows（Tauri 桌面应用）：**

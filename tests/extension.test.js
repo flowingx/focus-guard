@@ -97,10 +97,26 @@ test("extension options page edits high-risk and allowlist rules", async () => {
   assert.match(html, /add-quick-control/);
   assert.match(html, /add-quick-allow/);
   assert.match(html, /undo-last-rule/);
+  assert.match(html, /ai-detect-log/);
+  assert.match(html, /check-ai-health/);
+  assert.match(html, /run-ai-detect/);
+  assert.match(html, /clear-ai-log/);
   assert.match(html, /options\.js/);
   assert.match(js, /get_config/);
   assert.match(js, /save_config/);
   assert.match(js, /undo_last_rule_change/);
+  assert.match(js, /get_ai_detect_log/);
+  assert.match(js, /check_ai_server_health/);
+  assert.match(js, /run_ai_detect_now/);
+  assert.match(js, /clear_ai_detect_log/);
+  assert.match(js, /formatAiDetectLogEntry/);
+  assert.match(js, /aiDetectStatusMessage/);
+  assert.match(js, /aiHealthStatusMessage/);
+  assert.match(js, /服务正常/);
+  assert.match(js, /服务不可用/);
+  assert.match(js, /没有可检测的网页标签/);
+  assert.match(js, /已显示干预/);
+  assert.match(js, /服务端错误/);
   assert.match(js, /splitLines/);
   assert.match(js, /ruleFromInput/);
   assert.match(js, /new URL/);
@@ -108,6 +124,13 @@ test("extension options page edits high-risk and allowlist rules", async () => {
   assert.match(background, /save_config/);
   assert.match(background, /lastRuleChange/);
   assert.match(background, /undo_last_rule_change/);
+  assert.match(background, /get_ai_detect_log/);
+  assert.match(background, /check_ai_server_health/);
+  assert.match(background, /AI_HEALTH_URL/);
+  assert.match(background, /run_ai_detect_now/);
+  assert.match(background, /preferAnyHttpTab/);
+  assert.match(background, /no_http_tab/);
+  assert.match(background, /clear_ai_detect_log/);
 });
 
 test("extension UI follows browser light and dark color schemes", async () => {
@@ -165,4 +188,67 @@ test("extension swallows missing native messaging host errors", async () => {
 
   assert.match(background, /sendNativeMessage/);
   assert.match(background, /chrome\.runtime\.lastError/);
+});
+
+test("extension AI detect fetch matches server CORS contract", async () => {
+  const background = await readFile("extension/background.js", "utf8");
+  const server = await readFile("src-tauri/src/bin/server.rs", "utf8");
+
+  assert.match(background, /const AI_DETECT_URL = "http:\/\/127\.0\.0\.1:3001\/detect"/);
+  assert.match(background, /method: "POST"/);
+  assert.match(background, /"Content-Type": "application\/json"/);
+
+  assert.match(server, /\("OPTIONS", _\)/);
+  assert.match(server, /Access-Control-Allow-Origin: \*/);
+  assert.match(server, /Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS/);
+  assert.match(server, /Access-Control-Allow-Headers: Content-Type/);
+  assert.match(server, /\("POST", "\/detect"\)/);
+});
+
+test("extension records AI detect failures for debugging", async () => {
+  const background = await readFile("extension/background.js", "utf8");
+
+  assert.match(background, /async function recordAiDetectLog/);
+  assert.match(background, /aiDetectLog\.length > 200/);
+  assert.match(background, /status: "http_error"/);
+  assert.match(background, /status: "server_error"/);
+  assert.match(background, /status: "inject_failed"/);
+  assert.match(background, /status: "request_failed"/);
+  assert.match(background, /status: isDistracting \? "interference_shown" : "ok"/);
+});
+
+test("interference approval creates a short intent session before dismissing overlay", async () => {
+  const js = await readFile("extension/interference.js", "utf8");
+
+  assert.match(js, /type: "validate_distraction_reason"/);
+  assert.match(js, /type: "submit_intent"/);
+  assert.match(js, /minutes: 10/);
+  assert.match(js, /saveCandidate: false/);
+  assert.match(js, /放行失败，请重试/);
+  assert.match(js, /overlay\.remove/);
+});
+
+test("close current tab reports failures to intervention pages", async () => {
+  const background = await readFile("extension/background.js", "utf8");
+  const interference = await readFile("extension/interference.js", "utf8");
+  const expiredHtml = await readFile("extension/expired.html", "utf8");
+  const expiredJs = await readFile("extension/expired.js", "utf8");
+
+  assert.match(background, /error: "tab_not_found"/);
+  assert.match(background, /error: "tab_close_failed"/);
+  assert.match(background, /return true/);
+  assert.match(background, /return false/);
+  assert.match(interference, /关闭失败，请手动关闭此标签页/);
+  assert.match(expiredHtml, /expired-status/);
+  assert.match(expiredJs, /关闭失败，请手动关闭此标签页/);
+});
+
+test("extension rejects invalid intent session messages at the background boundary", async () => {
+  const background = await readFile("extension/background.js", "utf8");
+
+  assert.match(background, /target_required/);
+  assert.match(background, /reason_required/);
+  assert.match(background, /minutes_must_be_positive/);
+  assert.match(background, /if \(!result\.ok\)/);
+  assert.match(background, /return storeIntent\(message, sender\)/);
 });
