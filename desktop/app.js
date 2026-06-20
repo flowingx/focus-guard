@@ -39,6 +39,8 @@ const DEFAULT_LOCAL_AI = {
 };
 
 const SERVER = "http://127.0.0.1:3001";
+const MASKED_KEY = "••••••••";
+let serverHealth = "checking";
 
 function getFullEndpoint(base) {
   const url = (base || "").trim().replace(/\/+$/, "");
@@ -90,7 +92,9 @@ const state = loadState();
 
 applyTheme(state.theme ?? "system");
 render();
-loadApiKey();
+loadApiConfig();
+refreshBackendStatus();
+setInterval(refreshBackendStatus, 3000);
 
 function applyTheme(theme) {
   if (theme === "system") {
@@ -137,50 +141,148 @@ document.getElementById("allowlist-rules").addEventListener("change", (event) =>
 document.getElementById("local-ai-enabled").addEventListener("change", (event) => {
   state.localAi.enabled = event.target.checked;
   saveState();
+  renderLocalAiStatus();
 });
 
-async function loadApiKey() {
+async function loadApiConfig() {
   try {
     const resp = await fetch(`${SERVER}/config`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
-    if (!data.hasApiKey) {
-      document.getElementById("api-key-row").style.display = "";
-      document.getElementById("pe-save-btn").style.display = "";
-    }
+    state.localAi.endpoint = data.endpoint || state.localAi.endpoint;
+    state.localAi.model = data.model || state.localAi.model;
+    state.localAi.mode = data.mode || state.localAi.mode;
+    document.getElementById("pe-base-url").value = state.localAi.endpoint;
+    document.getElementById("pe-model").value = state.localAi.model;
+    document.getElementById("pe-api-key").value = data.hasApiKey ? MASKED_KEY : "";
+    saveState();
     renderLocalAiStatus();
-  } catch {}
+  } catch {
+    renderLocalAiStatus();
+  }
 }
 
 document.getElementById("pe-save-btn").addEventListener("click", async () => {
+  await saveApiConfig({ showAlert: true });
+});
+
+document.getElementById("pe-change-key-btn").addEventListener("click", () => {
+  const keyInput = document.getElementById("pe-api-key");
+  keyInput.value = "";
+  keyInput.placeholder = "输入新的 API Key";
+  keyInput.focus();
+});
+
+document.getElementById("pe-fetch-models-btn").addEventListener("click", fetchModels);
+document.getElementById("pe-test-btn").addEventListener("click", testApiConfig);
+
+async function saveApiConfig(options = {}) {
+  const endpoint = document.getElementById("pe-base-url").value.trim();
+  const model = document.getElementById("pe-model").value.trim();
   const keyInput = document.getElementById("pe-api-key");
   const apiKey = keyInput.value.trim();
-  if (!apiKey || apiKey === "••••••••") {
-    keyInput.focus();
-    return;
+
+  if (!endpoint) {
+    document.getElementById("pe-base-url").focus();
+    return false;
+  }
+  if (!model) {
+    document.getElementById("pe-model").focus();
+    return false;
+  }
+
+  const payload = {
+    mode: endpoint.includes("127.0.0.1") || endpoint.includes("localhost") ? "local" : "api",
+    endpoint,
+    model,
+  };
+  if (apiKey && apiKey !== MASKED_KEY) {
+    payload.api_key = apiKey;
   }
 
   try {
-    await fetch(`${SERVER}/config`, {
+    const resp = await fetch(`${SERVER}/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mode: "api",
-        endpoint: "https://ark.cn-beijing.volces.com/api/v3",
-        model: "ep-20260617210329-lsz4k",
-        api_key: apiKey,
-      }),
+      body: JSON.stringify(payload),
     });
-    keyInput.value = "••••••••";
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    state.localAi.endpoint = endpoint;
+    state.localAi.model = model;
+    state.localAi.mode = payload.mode;
     state.localAi.enabled = true;
     document.getElementById("local-ai-enabled").checked = true;
+    if (apiKey && apiKey !== MASKED_KEY) {
+      keyInput.value = MASKED_KEY;
+    }
     saveState();
+    await refreshBackendStatus();
     renderLocalAiStatus();
+    if (options.showAlert) {
+      showDetectMessage("ok", "配置已保存", "Base URL、Model 和 API Key 已更新。");
+    }
+    return true;
   } catch (e) {
-    alert("保存失败: " + e.message);
+    showDetectMessage("warn", "保存失败", e.message || "无法连接后端服务");
+    return false;
   }
-});
+}
 
-async function saveConfigToServer() {}
+async function fetchModels() {
+  if (!(await saveApiConfig())) return;
+  state.localAi.status = "拉取模型中...";
+  renderLocalAiStatus();
+
+  try {
+    const resp = await fetch(`${SERVER}/models`, { signal: AbortSignal.timeout(15000) });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+    const models = Array.isArray(data.data)
+      ? data.data.map((item) => item.id).filter(Boolean)
+      : [];
+    renderModelOptions(models);
+    if (models.length > 0 && !document.getElementById("pe-model").value.trim()) {
+      document.getElementById("pe-model").value = models[0];
+    }
+    state.localAi.status = models.length > 0 ? `已拉取 ${models.length} 个模型` : "未返回模型";
+  } catch (e) {
+    state.localAi.status = "模型拉取失败";
+    showDetectMessage("warn", "模型拉取失败", e.message || "请检查 Base URL 和 API Key");
+  }
+  saveState();
+  renderLocalAiStatus();
+}
+
+async function testApiConfig() {
+  if (!(await saveApiConfig())) return;
+  const model = document.getElementById("pe-model").value.trim();
+  state.localAi.status = "测试中...";
+  renderLocalAiStatus();
+
+  try {
+    const resp = await fetch(`${SERVER}/test-model`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) throw new Error(data.error || "模型测试失败");
+    state.localAi.status = "API 已连接";
+    showDetectMessage("ok", "API 测试通过", data.response || `${model} 可用`);
+  } catch (e) {
+    state.localAi.status = "API 失败";
+    showDetectMessage("warn", "API 测试失败", e.message || "请检查 Key、Base URL 和 Model");
+  }
+  saveState();
+  renderLocalAiStatus();
+}
+
+function renderModelOptions(models) {
+  document.getElementById("pe-model-options").innerHTML = models
+    .map((model) => `<option value="${escapeHtml(model)}"></option>`)
+    .join("");
+}
 
 function render() {
   document.getElementById("focus-state").textContent = state.focusMode
@@ -296,28 +398,47 @@ function render() {
   renderActivity();
 }
 
+async function refreshBackendStatus() {
+  const previous = serverHealth;
+  serverHealth = "checking";
+  if (previous !== "connected") renderLocalAiStatus();
+
+  try {
+    const resp = await fetch(`${SERVER}/health`, { signal: AbortSignal.timeout(1200) });
+    const payload = await resp.json();
+    serverHealth = resp.ok && payload.ok ? "connected" : "disconnected";
+  } catch {
+    serverHealth = "disconnected";
+  }
+
+  renderLocalAiStatus();
+}
+
 function renderLocalAiStatus() {
   const status = document.getElementById("local-ai-status");
   const dot = document.getElementById("ai-status-dot");
-  const stale = ["请在 WSL 终端中运行下方命令", "请确保 llama-server 在 WSL 端口 8080 运行", "待测试", "未启用", "未连接"];
-  if (stale.includes(state.localAi.status)) {
-    delete state.localAi.status;
-  }
-  const stateText = state.localAi.status ?? (state.localAi.enabled ? "待测试" : "未启用");
+  const operationStatus = state.localAi.status;
+  const stateText =
+    operationStatus === "测试中..." || operationStatus === "拉取模型中..."
+      ? operationStatus
+      : serverHealth === "connected"
+        ? "后端已连接"
+        : serverHealth === "checking"
+          ? "检查中..."
+          : "后端未连接";
+
   status.textContent = stateText;
 
   dot.className = "status-dot";
-  if (stateText.includes("已连接")) {
+  if (serverHealth === "connected" && !stateText.includes("失败")) {
     status.className = "pill ok-pill";
     dot.classList.add("connected");
-  } else if (stateText === "测试中...") {
+  } else if (serverHealth === "checking" || stateText === "测试中..." || stateText === "拉取模型中...") {
     status.className = "pill muted-pill";
     dot.classList.add("testing");
-  } else if (stateText === "输出异常" || stateText === "未连接") {
-    status.className = "pill muted-pill";
-    dot.classList.add("error");
   } else {
     status.className = "pill muted-pill";
+    dot.classList.add("error");
   }
 }
 
@@ -431,7 +552,7 @@ function download(filename, content, type) {
 async function testLocalAi() {
   state.localAi.status = "测试中...";
   renderLocalAiStatus();
-  await saveConfigToServer();
+  await saveApiConfig();
 
   try {
     const controller = new AbortController();
@@ -456,12 +577,33 @@ async function testLocalAi() {
   renderLocalAiStatus();
 }
 
+function focusApiConfig() {
+  document.getElementById("pe-api-key").focus();
+}
+
+function showDetectMessage(kind, title, message) {
+  const resultBox = document.getElementById("detect-result");
+  const icon = kind === "ok" ? "✅" : kind === "danger" ? "🚨" : "⚠️";
+  resultBox.classList.remove("hidden");
+  resultBox.className = `detect-result ${kind}`;
+  resultBox.innerHTML = `
+    <div class="detect-card">
+      <div class="detect-icon">${icon}</div>
+      <div class="detect-info">
+        <strong>${escapeHtml(title)}</strong>
+        <p class="detect-reason">${escapeHtml(message)}</p>
+      </div>
+    </div>
+  `;
+}
+
 async function detectProcrastination() {
   const resultBox = document.getElementById("detect-result");
   resultBox.classList.remove("hidden");
   resultBox.className = "detect-result";
 
   try {
+    await refreshBackendStatus();
     const healthCheck = await fetch(`${SERVER}/health`, {
       signal: AbortSignal.timeout(3000),
     });
@@ -509,8 +651,7 @@ async function detectProcrastination() {
     if (result.error) {
       const needsKey = result.error.includes("api_error") || result.error.includes("Unauthorized") || result.error.includes("401") || result.error.includes("invalid_model_json");
       if (needsKey) {
-        document.getElementById("api-key-row").style.display = "";
-        document.getElementById("pe-save-btn").style.display = "";
+        focusApiConfig();
       }
       resultBox.className = "detect-result warn";
       resultBox.innerHTML = `
@@ -592,8 +733,7 @@ async function detectProcrastination() {
 
     const needsKey = msg.includes("服务未连接") || msg.includes("无法连接");
     if (needsKey) {
-      document.getElementById("api-key-row").style.display = "";
-      document.getElementById("pe-save-btn").style.display = "";
+      focusApiConfig();
     }
 
     resultBox.className = "detect-result warn";

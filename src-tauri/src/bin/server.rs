@@ -98,12 +98,65 @@ fn save_providers(cfg: &ProviderConfig) {
 
 fn get_ai_config() -> AiConfig {
     let guard = AI_CONFIG.lock().unwrap();
-    guard.clone().unwrap_or(AiConfig {
+    if let Some(config) = guard.clone() {
+        return config;
+    }
+    drop(guard);
+
+    let providers = load_providers();
+    if let Some(active_id) = providers.active_provider_id.as_deref() {
+        if let Some(provider) = providers.providers.iter().find(|provider| provider.id == active_id) {
+            return AiConfig {
+                mode: if provider.base_url.contains("127.0.0.1") || provider.base_url.contains("localhost") {
+                    "local".to_string()
+                } else {
+                    "api".to_string()
+                },
+                endpoint: provider.base_url.clone(),
+                model: provider.selected_model.clone(),
+                api_key: provider.api_key.clone(),
+            };
+        }
+    }
+
+    AiConfig {
         mode: "api".to_string(),
         endpoint: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
         model: "ep-20260617210329-lsz4k".to_string(),
         api_key: std::env::var("FG_AI_API_KEY").unwrap_or_default(),
-    })
+    }
+}
+
+fn persist_ai_config(ai: &AiConfig) {
+    let mut providers = load_providers();
+    let active_id = providers.active_provider_id.clone();
+
+    if let Some(id) = active_id {
+        if let Some(provider) = providers.providers.iter_mut().find(|provider| provider.id == id) {
+            provider.base_url = ai.endpoint.clone();
+            provider.selected_model = ai.model.clone();
+            provider.api_key = ai.api_key.clone();
+            if provider.models.is_empty() && !ai.model.is_empty() {
+                provider.models.push(ai.model.clone());
+            }
+            save_providers(&providers);
+            return;
+        }
+    }
+
+    let id = "custom".to_string();
+    providers.providers.push(Provider {
+        id: id.clone(),
+        name: "自定义 API".to_string(),
+        base_url: ai.endpoint.clone(),
+        api_key: ai.api_key.clone(),
+        models: if ai.model.is_empty() { Vec::new() } else { vec![ai.model.clone()] },
+        selected_model: ai.model.clone(),
+        latency_ms: None,
+        active: true,
+    });
+    providers.active_provider_id = Some(id);
+    save_providers(&providers);
 }
 
 fn main() {
@@ -234,12 +287,16 @@ fn main() {
             }
             ("POST", "/config") => {
                 let body_str = String::from_utf8_lossy(&body).to_string();
-                let mode = extract_json_string(&body_str, "mode").unwrap_or_else(|| "local".to_string());
-                let endpoint = extract_json_string(&body_str, "endpoint").unwrap_or_else(|| "https://ark.cn-beijing.volces.com/api/v3".to_string());
-                let model = extract_json_string(&body_str, "model").unwrap_or_default();
-                let api_key = extract_json_string(&body_str, "api_key").unwrap_or_default();
+                let current = get_ai_config();
+                let mode = extract_json_string(&body_str, "mode").unwrap_or(current.mode);
+                let endpoint = extract_json_string(&body_str, "endpoint").unwrap_or(current.endpoint);
+                let model = extract_json_string(&body_str, "model").unwrap_or(current.model);
+                let api_key = extract_json_string(&body_str, "api_key").unwrap_or(current.api_key);
+                let next = AiConfig { mode, endpoint, model, api_key };
                 let mut guard = AI_CONFIG.lock().unwrap();
-                *guard = Some(AiConfig { mode, endpoint, model, api_key });
+                *guard = Some(next.clone());
+                drop(guard);
+                persist_ai_config(&next);
                 ("200 OK", r#"{"ok":true}"#.to_string())
             }
             ("GET", "/models") | ("POST", "/models") => {

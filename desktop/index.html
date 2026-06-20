@@ -80,14 +80,26 @@
           </label>
         </div>
 
-        <div class="settings-grid" style="margin-top:16px; display:none" id="api-key-row">
+        <div class="settings-grid ai-config-grid" style="margin-top:16px" id="api-config-row">
           <label>
-            <span>豆包 API Key</span>
+            <span>Base URL</span>
+            <input id="pe-base-url" type="url" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
+          </label>
+          <label>
+            <span>Model</span>
+            <input id="pe-model" type="text" list="pe-model-options" placeholder="ep-..." />
+            <datalist id="pe-model-options"></datalist>
+          </label>
+          <label>
+            <span>API Key</span>
             <input id="pe-api-key" type="password" placeholder="ark-..." />
           </label>
         </div>
         <div class="ai-test-row" style="margin-top:12px">
-          <button id="pe-save-btn" type="button" class="btn-primary" style="display:none">保存</button>
+          <button id="pe-save-btn" type="button" class="btn-primary">保存配置</button>
+          <button id="pe-change-key-btn" type="button">更换 Key</button>
+          <button id="pe-fetch-models-btn" type="button">拉取模型</button>
+          <button id="pe-test-btn" type="button">测试 API</button>
           <button id="detect-now" type="button" class="btn-primary">检测摸鱼</button>
           <span id="ai-status-dot" class="status-dot"></span>
           <span id="local-ai-status" class="pill muted-pill">未连接</span>

@@ -54,12 +54,18 @@ test("desktop UI exposes optional local AI settings", async () => {
   const js = await readFile("desktop/app.js", "utf8");
 
   assert.match(html, /local-ai-enabled/);
+  assert.match(html, /pe-base-url/);
+  assert.match(html, /pe-model/);
   assert.match(html, /pe-api-key/);
   assert.match(html, /pe-save-btn/);
+  assert.match(html, /pe-change-key-btn/);
+  assert.match(html, /pe-fetch-models-btn/);
+  assert.match(html, /pe-test-btn/);
   assert.match(html, /detect-now/);
   assert.match(js, /ep-20260617210329-lsz4k/);
   assert.match(js, /ark\.cn-beijing\.volces\.com/);
-  assert.match(js, /loadApiKey/);
+  assert.match(js, /loadApiConfig/);
+  assert.match(js, /refreshBackendStatus/);
 });
 
 test("escapeHtml escapes ampersand", () => {
