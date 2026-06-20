@@ -33,7 +33,7 @@ impl Default for ProviderConfig {
                 id: "doubao".to_string(),
                 name: "豆包 (Doubao)".to_string(),
                 base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
-                api_key: "ark-c1f4265c-3952-4872-9246-b292bc3d8944-79239".to_string(),
+                api_key: std::env::var("FG_AI_API_KEY").unwrap_or_default(),
                 models: vec!["ep-20260617210329-lsz4k".to_string()],
                 selected_model: "ep-20260617210329-lsz4k".to_string(),
                 latency_ms: None,
@@ -102,7 +102,7 @@ fn get_ai_config() -> AiConfig {
         mode: "api".to_string(),
         endpoint: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
         model: "ep-20260617210329-lsz4k".to_string(),
-        api_key: "ark-c1f4265c-3952-4872-9246-b292bc3d8944-79239".to_string(),
+        api_key: std::env::var("FG_AI_API_KEY").unwrap_or_default(),
     })
 }
 

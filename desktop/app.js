@@ -31,7 +31,7 @@ const DEFAULT_LOCAL_AI = {
   mode: "api",
   endpoint: "https://ark.cn-beijing.volces.com/api/v3",
   model: "ep-20260617210329-lsz4k",
-  apiKey: "ark-c1f4265c-3952-4872-9246-b292bc3d8944-79239",
+  apiKey: "",
   apiBaseUrl: "https://api.openai.com",
   apiModel: "",
   sampleIntervalSeconds: 30,
