@@ -25,6 +25,8 @@ Chrome/Edge 扩展  ◄──Native Messaging──►  focus-guard-native-host 
 - **供应商管理** — 多供应商卡片展示，自动测试排序，一键切换
 - **强制干预** — AI 检测到摸鱼时弹出全屏遮罩，验证理由后决定放行或关闭页面
 - **定时轮询 + 中断触发** — 扩展在页面加载时和每 5 分钟自动检测
+- **后台定时巡检** — `focus-guard-server` 可按分钟定时截图分析，用于检测非浏览器应用摸鱼并弹出提醒
+- **AI 判断记录与总结** — 桌面 UI 显示最近 20 次截图分析，并用后端保留的最近 1000 条记录估算每日/每小时专注、摸鱼、无变化与网页/窗口时长
 - **深色模式** — 支持手动切换（浅色/深色/跟随系统）
 
 ## 快速启动
@@ -34,6 +36,7 @@ Chrome/Edge 扩展  ◄──Native Messaging──►  focus-guard-native-host 
 **Windows:**
 ```bash
 start.bat
+stop.bat
 ```
 
 **Linux/WSL:**
@@ -41,7 +44,8 @@ start.bat
 ./start.sh
 ```
 
-脚本会自动构建 Rust 后端、启动服务器和桌面 UI，并打开浏览器。
+`start.bat` 会自动增量构建 Rust 后端、在后台隐藏启动服务器和桌面 UI，并打开浏览器。启动窗口会自动退出；需要关闭服务时运行 `stop.bat`。
+启动日志写入 `logs\start.log`，服务日志写入 `logs\server.err.log` / `logs\server.out.log`，静态 UI 日志写入 `logs\web.err.log` / `logs\web.out.log`。
 
 ### 手动启动
 
@@ -129,6 +133,12 @@ python3 -m http.server 3000 --bind 0.0.0.0 --directory desktop/
 # 浏览器打开 http://localhost:3000
 ```
 
+Windows 后台启动后可用 `stop.bat` 停止 `focus-guard-server` 和本地 3000/3001 端口服务。
+
+桌面 UI 的「AI 摸鱼检测」区域可以开启「后台定时巡检」，配置会保存到后端；只要 `focus-guard-server` 仍在后台运行，关闭浏览器页面后也会按设定间隔检测非浏览器应用。浏览器网页拦截仍由 Chrome/Edge 扩展处理。
+
+「专注总结」区域按巡检间隔估算今日与最近小时的学习/工作、摸鱼、未使用/无变化时长，并汇总网页/窗口停留时间；如果连续两次巡检的进程、窗口标题、分类和原因完全一致，会计为未使用/无变化，不计入专注时间。「AI 判断记录」区域仍只显示最近 20 次桌面截图分析，最新记录在滚动列表顶部。记录由后端保存到 `AppData\Local\FocusGuard\ai-records.json`，后端保留最近 1000 条用于总结统计。
+
 ### 第六步：配置 AI 供应商
 
 1. 在桌面 UI 中点击「📋 粘贴配置」
@@ -201,4 +211,5 @@ git push origin v0.1.0
 - 本地 AI 模型需要 GPU 或大内存（4B 模型约需 4GB 显存或 14GB 内存）
 - 扩展的白名单/高风险域名列表在 `shared/policy.js` 和 Rust `lib.rs` 中各有一份，修改时需同步
 - AI 系统提示必须以 `/no_think` 开头（防止 Qwen3 thinking 模式消耗所有 token）
-- 供应商配置保存在 `AppData\Local\FocusGuard\providers.json`
+- 供应商配置保存在 `AppData\Local\FocusGuard\providers.json`，不要提交 API Key、`.env` 或复制出来的本地配置文件
+- 如果真实 API Key 曾经提交到 GitHub 历史记录，请在对应供应商后台重置 Key；仅删除当前代码里的 Key 不能让历史记录失效

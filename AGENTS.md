@@ -15,7 +15,8 @@ export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh" && source "$HOME/.cargo/env"
 
 # One-click start (builds + runs everything)
 ./start.sh          # Linux/WSL
-start.bat           # Windows
+start.bat           # Windows, incremental build + hidden background start, opens browser, then exits
+stop.bat            # Windows, stops focus-guard-server and local UI ports
 
 # Run all tests
 npm run test:all
@@ -37,6 +38,8 @@ python3 -m http.server 3000 --bind 0.0.0.0 --directory /home/flow/focus-guard/de
 - `src-tauri/` — Rust backend (`lib.rs` + modules). Communicates with extension via Chrome Native Messaging protocol (4-byte LE length prefix + JSON).
 - `desktop/` — Desktop UI (plain HTML/JS/CSS, served as static files)
 - `tests/` — JS tests using `node:test` + `node:assert/strict`. Run via `node tests/run.js`.
+- Background scheduled desktop checks live in `focus-guard-server`, not in the browser page. The UI controls `/scheduled-detect`; the server persists state in `AppData\Local\FocusGuard\scheduled-detect.json`.
+- `focus-guard-server` handles each HTTP connection on its own thread so long AI `/detect` calls do not block `/health`. AI judgement records are persisted in `AppData\Local\FocusGuard\ai-records.json`; the server keeps the latest 1000 records for summaries while the desktop UI renders the latest 20 records and estimates daily/hourly productive, distracting, idle/no-change, and window/title minutes from the history.
 
 ## Binaries
 
@@ -71,6 +74,8 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-server --releas
 cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-native-host --release
 ```
 
+For normal Windows use, prefer `start.bat`. It runs an incremental release build, relaunches itself hidden, starts `focus-guard-server` and the static UI in the background, opens `http://localhost:3000`, writes logs under `logs\`, and exits. Use `stop.bat` to stop the background server/UI processes. For script debugging, run `start.bat --worker` to execute the worker path directly.
+
 ### 3. Load Chrome extension
 - `chrome://extensions` → Developer mode → Load unpacked → select `extension/` folder
 
@@ -100,6 +105,10 @@ Invoke-RestMethod -Uri "http://127.0.0.1:3001/health"
 # Screenshot + AI analysis
 $body = '{}' | ConvertTo-Json
 Invoke-RestMethod -Uri "http://127.0.0.1:3001/detect" -Method POST -Body $body -ContentType "application/json"
+
+# Background scheduled desktop checks
+Invoke-RestMethod -Uri "http://127.0.0.1:3001/scheduled-detect" -Method GET
+Invoke-RestMethod -Uri "http://127.0.0.1:3001/scheduled-detect" -Method POST -Body '{"enabled":true,"interval_minutes":5}' -ContentType "application/json"
 
 # Multi-provider management
 Invoke-RestMethod -Uri "http://127.0.0.1:3001/providers" -Method GET
@@ -163,22 +172,21 @@ netsh advfirewall firewall add rule name=FocusGuard-3001 dir=in action=allow pro
 
 ### P0 - Critical
 
-1. **server.rs 编译错误**: `parse_curl` 函数有未闭合的花括号，导致编译失败。需要检查并修复 `handle_parse_config` 和 `parse_curl` 函数的花括号匹配。
-2. **CORS 检测失败**: 扩展的 `triggerAiDetect` 通过 `fetch("http://127.0.0.1:3001/detect")` 调用服务器，但从扩展 service worker 发出的跨域请求可能被拦截。需要测试扩展是否能正常调用服务器端点。
+No known compile-blocking P0 at the moment. `focus-guard-server` currently passes `cargo check`, release build, and targeted server unit tests.
 
 ### P1 - Important
 
-3. **Curl 解析 API Key 提取**: `parse_curl` 中 shell 引号处理不完整，导致 `Authorization: Bearer xxx` 中的 key 无法正确提取。`shell_split` 函数已实现但需验证。
-4. **分屏检测 AI 准确性**: 4B 小模型在分屏场景（左视频右学习）下仍可能误判为 study。需要更强的 prompt 或换用更大的视觉模型。
-5. **强制干预流程**: `interference.js` 和 `interference.css` 已创建，但尚未完整测试。扩展的 `scripting.insertCSS` + `scripting.executeScript` 注入遮罩流程需要端到端验证。
-6. **强制关闭页面**: `chrome.tabs.remove(tabId)` 可以关闭标签页，但 `interference.js` 中的 `close_current_tab` 消息处理需要验证是否能正确关闭页面。
+1. **扩展到后端 CORS 端到端**: 扩展的 `triggerAiDetect` 通过 `fetch("http://127.0.0.1:3001/detect")` 调用服务器；server 已返回 CORS headers，但仍需在 Chrome/Edge service worker 中端到端验证。
+2. **分屏检测 AI 准确性**: 4B 小模型在分屏场景（左视频右学习）下仍可能误判为 study。需要更强的 prompt 或换用更大的视觉模型。
+3. **强制干预流程**: `interference.js` 和 `interference.css` 已创建，但尚未完整测试。扩展的 `scripting.insertCSS` + `scripting.executeScript` 注入遮罩流程需要端到端验证。
+4. **强制关闭页面**: `chrome.tabs.remove(tabId)` 可以关闭标签页，但 `interference.js` 中的 `close_current_tab` 消息处理需要验证是否能正确关闭页面。
 
 ### P2 - Nice to Have
 
-7. **深色模式切换**: CSS 使用 `[data-theme="dark"]` 和 `@media (prefers-color-scheme: dark)` 双重机制，但需验证手动切换是否正常工作。
-8. **供应商配置持久化**: 保存到 `AppData\Local\FocusGuard\providers.json`，但首次使用时目录可能不存在，需确保 `create_dir_all` 正常工作。
-9. **WSL 无法直连 Windows**: WSL 通过 `172.21.208.1:3001` 连接 Windows 超时。需要确认防火墙规则是否正确生效。
-10. **server.rs `post_json` 函数**: `lib.rs` 中旧的 `post_json` 函数可能已不再使用，应清理。
+5. **深色模式切换**: CSS 使用 `[data-theme="dark"]` 和 `@media (prefers-color-scheme: dark)` 双重机制，但需验证手动切换是否正常工作。
+6. **Curl 解析更多样例**: `parse_curl` 已覆盖 `Authorization: Bearer`、`api-key` header、JSON body model、`--data-raw`、inline `--data=`；后续可继续添加供应商真实导出的 curl 样例。
+7. **WSL 无法直连 Windows**: WSL 通过 `172.21.208.1:3001` 连接 Windows 超时。需要确认防火墙规则是否正确生效。
+8. **后台定时巡检 UX**: 后端已能在 UI 关闭后定时巡检并弹提醒；后续可考虑把最近一次后台结果做成更明确的 UI 时间戳和确认按钮。
 
 ## Model Setup Notes
 

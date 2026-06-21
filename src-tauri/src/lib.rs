@@ -3,10 +3,10 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub mod screenshot;
 pub mod ai_analyzer;
 pub mod focus_monitor;
 pub mod reminder;
+pub mod screenshot;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AppMonitorConfig {
@@ -50,8 +50,8 @@ impl Default for LocalAiConfig {
     fn default() -> Self {
         let endpoint = std::env::var("FG_AI_ENDPOINT")
             .unwrap_or_else(|_| "https://ark.cn-beijing.volces.com/api/v3".to_string());
-        let model = std::env::var("FG_AI_MODEL")
-            .unwrap_or_else(|_| "ep-20260617210329-lsz4k".to_string());
+        let model =
+            std::env::var("FG_AI_MODEL").unwrap_or_else(|_| "ep-20260617210329-lsz4k".to_string());
         let api_key = std::env::var("FG_AI_API_KEY").unwrap_or_default();
         Self {
             enabled: true,
@@ -264,7 +264,10 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
         Ok(response) => {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&response) {
                 if let Some(err) = v.get("error") {
-                    let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("API error");
+                    let msg = err
+                        .get("message")
+                        .and_then(|m| m.as_str())
+                        .unwrap_or("API error");
                     let code = err.get("code").and_then(|c| c.as_str()).unwrap_or("");
                     return AiClassification {
                         error: Some(format!("[{}] {}", code, msg)),
@@ -274,12 +277,10 @@ pub fn classify_context(config: &LocalAiConfig, context: &AiContext) -> AiClassi
             }
             classify_context_from_llm_response(&response)
         }
-        Err(e) => {
-            AiClassification {
-                error: Some(e.to_string()),
-                ..AiClassification::unknown("local_ai_unavailable")
-            }
-        }
+        Err(e) => AiClassification {
+            error: Some(e.to_string()),
+            ..AiClassification::unknown("local_ai_unavailable")
+        },
     }
 }
 
@@ -290,10 +291,10 @@ pub fn local_ai_request_json(config: &LocalAiConfig, context: &AiContext) -> Str
         &context.window_title
     };
     let user_content = format!(
-        "Full desktop screenshot. Active process: {}. Window title: {}. Analyze ALL visible content on screen, not just the active window.",
+        "Full desktop screenshot. Active process: {}. Window title: {}. Analyze ALL visible content on screen, not just the active window. Return Chinese text in reason and suggested explanation fields.",
         context.process_name, title
     );
-    let system_msg = "/no_think\nYou are Focus Guard, a strict focus assistant analyzing a FULL DESKTOP SCREENSHOT. CRITICAL RULES:\n1. Look at the ENTIRE screen - every pixel matters, not just the largest window.\n2. If you see ANY video site (bilibili, youtube, douyin, tiktok, netflix, twitch, gaming content, live streams), classify as \"distracting\" regardless of what else is visible.\n3. If you see social media feeds, short videos, gaming, entertainment - classify as \"distracting\" or \"entertainment\".\n4. Split screen with entertainment on ANY side = distracting.\n5. Only classify as \"study\" if the ENTIRE screen shows educational/productive content.\n6. Only classify as \"work\" if the ENTIRE screen shows work-related applications.\nCommon distracting sites to watch for: bilibili.com, youtube.com, douyin.com, tiktok.com, netflix.com, twitch.tv, x.com, weibo.com, zhihu.com (non-study).\nReturn JSON: {\"category\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"...\"}\nCategories: study, work, entertainment, distracting, unknown.";
+    let system_msg = "/no_think\nYou are Focus Guard, a strict focus assistant analyzing a FULL DESKTOP SCREENSHOT. CRITICAL RULES:\n1. Look at the ENTIRE screen - every pixel matters, not just the largest window.\n2. If you see ANY video site (bilibili, youtube, douyin, tiktok, netflix, twitch, gaming content, live streams), classify as \"distracting\" regardless of what else is visible.\n3. If you see social media feeds, short videos, gaming, entertainment - classify as \"distracting\" or \"entertainment\".\n4. Split screen with entertainment on ANY side = distracting.\n5. Only classify as \"study\" if the ENTIRE screen shows educational/productive content.\n6. Only classify as \"work\" if the ENTIRE screen shows work-related applications.\nCommon distracting sites to watch for: bilibili.com, youtube.com, douyin.com, tiktok.com, netflix.com, twitch.tv, x.com, weibo.com, zhihu.com (non-study).\nReturn JSON only. Keep JSON field names and category values in English, but write the reason value in Simplified Chinese.\nReturn JSON: {\"category\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"中文原因\",\"suggested_action\":\"none|intent_required\"}\nCategories: study, work, entertainment, distracting, unknown.";
 
     if is_doubao_endpoint(&config.endpoint) {
         return doubao_request_json(config, &user_content, system_msg, context);
@@ -306,7 +307,10 @@ pub fn local_ai_request_json(config: &LocalAiConfig, context: &AiContext) -> Str
             json_escape(image)
         )
     } else {
-        format!("[{{\"type\":\"text\",\"text\":\"{}\"}}]", json_escape(&user_content))
+        format!(
+            "[{{\"type\":\"text\",\"text\":\"{}\"}}]",
+            json_escape(&user_content)
+        )
     };
 
     format!(
@@ -318,10 +322,15 @@ pub fn local_ai_request_json(config: &LocalAiConfig, context: &AiContext) -> Str
 }
 
 fn is_doubao_endpoint(endpoint: &str) -> bool {
-    endpoint.contains("ark.cn-beijing.volces.com") || endpoint.contains("/api/v3/responses")
+    endpoint.contains("ark.cn-beijing.volces.com") || endpoint.contains("/api/v3")
 }
 
-fn doubao_request_json(config: &LocalAiConfig, user_content: &str, system_msg: &str, context: &AiContext) -> String {
+fn doubao_request_json(
+    config: &LocalAiConfig,
+    user_content: &str,
+    system_msg: &str,
+    context: &AiContext,
+) -> String {
     let mut content_parts: Vec<String> = Vec::new();
 
     if let Some(image) = &context.screenshot_base64 {
@@ -350,7 +359,10 @@ pub fn classify_context_from_llm_response(response_json: &str) -> AiClassificati
         return AiClassification::unknown("empty_ai_response");
     }
     let parsed = parse_ai_classification(&model_text);
-    if parsed.error.is_none() && parsed.category == "unknown" && parsed.reason == "invalid_model_json" {
+    if parsed.error.is_none()
+        && parsed.category == "unknown"
+        && parsed.reason == "invalid_model_json"
+    {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&model_text) {
             if let Some(inner) = v.as_str() {
                 return parse_ai_classification(inner);
@@ -420,11 +432,17 @@ pub fn encode_native_message(json: &str) -> Vec<u8> {
 
 pub fn decode_native_message(data: &[u8]) -> io::Result<String> {
     if data.len() < 4 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "message too short"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "message too short",
+        ));
     }
     let len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
     if data.len() < 4 + len {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "message truncated"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "message truncated",
+        ));
     }
     String::from_utf8(data[4..4 + len].to_vec())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
@@ -568,7 +586,10 @@ pub fn is_target_allowlisted(config: &AppMonitorConfig, target: &str) -> bool {
     false
 }
 
-fn ai_target_state_mut<'a>(states: &'a mut Vec<AiTargetState>, target: &str) -> &'a mut AiTargetState {
+fn ai_target_state_mut<'a>(
+    states: &'a mut Vec<AiTargetState>,
+    target: &str,
+) -> &'a mut AiTargetState {
     if let Some(index) = states.iter().position(|state| state.target == target) {
         return &mut states[index];
     }
@@ -580,7 +601,9 @@ fn ai_target_state_mut<'a>(states: &'a mut Vec<AiTargetState>, target: &str) -> 
         last_seen_ms: 0,
     });
 
-    states.last_mut().expect("ai target state was just inserted")
+    states
+        .last_mut()
+        .expect("ai target state was just inserted")
 }
 
 fn parse_ai_classification(json: &str) -> AiClassification {
@@ -602,8 +625,13 @@ fn parse_ai_classification(json: &str) -> AiClassification {
     AiClassification {
         category,
         confidence: v.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.0) as f32,
-        reason: v.get("reason").and_then(|r| r.as_str()).unwrap_or_default().to_string(),
-        suggested_action: v.get("suggested_action")
+        reason: v
+            .get("reason")
+            .and_then(|r| r.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        suggested_action: v
+            .get("suggested_action")
             .and_then(|a| a.as_str())
             .unwrap_or("none")
             .to_string(),
@@ -641,7 +669,6 @@ pub fn json_u64_field(json: &str, field: &str) -> Option<u64> {
 
     digits.parse().ok()
 }
-
 
 fn read_json_string(value: &str) -> Option<String> {
     let mut result = String::new();
@@ -699,13 +726,11 @@ pub fn strip_www(host: &str) -> String {
     host.strip_prefix("www.").unwrap_or(host).trim().to_string()
 }
 
-pub fn classify_context_from_llm_response_raw(request_json: &str, config: &LocalAiConfig) -> Result<String, String> {
-    let endpoint = if is_doubao_endpoint(&config.endpoint) {
-        let base = config.endpoint.trim_end_matches('/').to_string();
-        format!("{}/responses", base)
-    } else {
-        config.endpoint.clone()
-    };
+pub fn classify_context_from_llm_response_raw(
+    request_json: &str,
+    config: &LocalAiConfig,
+) -> Result<String, String> {
+    let endpoint = llm_request_endpoint(&config.endpoint);
     let response = if endpoint.starts_with("https://") {
         post_json_https(&endpoint, request_json, &config.api_key)
     } else {
@@ -713,6 +738,37 @@ pub fn classify_context_from_llm_response_raw(request_json: &str, config: &Local
     };
     let response = response.map_err(|e| format!("request failed: {}", e))?;
     Ok(extract_response_text(&response))
+}
+
+pub fn llm_request_endpoint(endpoint: &str) -> String {
+    let base = endpoint.trim_end_matches('/');
+    if is_doubao_endpoint(base) {
+        if base.ends_with("/responses") {
+            base.to_string()
+        } else {
+            format!("{}/responses", base)
+        }
+    } else if base.ends_with("/v1/chat/completions") {
+        base.to_string()
+    } else if base.ends_with("/v1") {
+        format!("{}/chat/completions", base)
+    } else {
+        format!("{}/v1/chat/completions", base)
+    }
+}
+
+pub fn llm_models_endpoint(endpoint: &str) -> String {
+    let base = endpoint.trim_end_matches('/');
+    if is_doubao_endpoint(base) {
+        let api_base = base.strip_suffix("/responses").unwrap_or(base);
+        format!("{}/models", api_base)
+    } else if let Some(api_base) = base.strip_suffix("/chat/completions") {
+        format!("{}/models", api_base)
+    } else if base.ends_with("/v1") {
+        format!("{}/models", base)
+    } else {
+        format!("{}/v1/models", base)
+    }
 }
 
 fn post_json_https(endpoint: &str, body: &str, api_key: &str) -> io::Result<String> {
@@ -771,9 +827,10 @@ fn post_json_with_key(endpoint: &str, body: &str, api_key: &str) -> io::Result<S
         .unwrap_or(0);
 
     if status_code != 200 {
-        return Err(io::Error::other(
-            format!("HTTP {}: {}", status_line, status_code),
-        ));
+        return Err(io::Error::other(format!(
+            "HTTP {}: {}",
+            status_line, status_code
+        )));
     }
 
     Ok(response[header_end..].trim().to_string())
@@ -781,7 +838,10 @@ fn post_json_with_key(endpoint: &str, body: &str, api_key: &str) -> io::Result<S
 
 pub fn parse_http_endpoint(endpoint: &str) -> io::Result<(String, u16, String)> {
     let without_scheme = endpoint.strip_prefix("http://").ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "only http endpoints are supported")
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "only http endpoints are supported",
+        )
     })?;
     let (host_port, path) = without_scheme
         .split_once('/')
@@ -803,9 +863,9 @@ pub fn parse_http_endpoint(endpoint: &str) -> io::Result<(String, u16, String)> 
 #[cfg(windows)]
 pub fn capture_screen_thumbnail_base64() -> Option<String> {
     use crate::screenshot::ScreenshotCapture;
-    use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
-    
+    use base64::Engine;
+
     let capture = ScreenshotCapture::default();
     match capture.capture_current_window() {
         Ok(image_data) => Some(STANDARD.encode(&image_data)),

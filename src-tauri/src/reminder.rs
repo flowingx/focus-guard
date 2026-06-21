@@ -43,15 +43,12 @@ impl Reminder {
     fn send_notification(&self, message: &str) -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(target_os = "windows")]
         {
-            use windows::Win32::UI::WindowsAndMessaging::MessageBoxW;
-            use windows::Win32::Foundation::HWND;
             use std::ffi::OsStr;
             use std::os::windows::ffi::OsStrExt;
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::MessageBoxW;
 
-            let wide_message: Vec<u16> = OsStr::new(message)
-                .encode_wide()
-                .chain(Some(0))
-                .collect();
+            let wide_message: Vec<u16> = OsStr::new(message).encode_wide().chain(Some(0)).collect();
 
             unsafe {
                 MessageBoxW(

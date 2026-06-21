@@ -39,8 +39,8 @@ impl FocusMonitor {
     pub fn new() -> Self {
         Self {
             analysis_history: VecDeque::new(),
-            max_history: 20, // 保留最近20次分析
-            distraction_threshold: 0.6, // 60%摸鱼触发提醒
+            max_history: 20,                             // 保留最近20次分析
+            distraction_threshold: 0.6,                  // 60%摸鱼触发提醒
             reminder_interval: Duration::from_secs(300), // 5分钟提醒间隔
             last_reminder: None,
             session_start: Instant::now(),
@@ -95,7 +95,8 @@ impl FocusMonitor {
 
         // 计算最近N次分析中摸鱼的比例
         let recent_count = self.analysis_history.len().min(5);
-        let recent_distractions = self.analysis_history
+        let recent_distractions = self
+            .analysis_history
             .iter()
             .rev()
             .take(recent_count)
@@ -103,7 +104,7 @@ impl FocusMonitor {
             .count();
 
         let distraction_ratio = recent_distractions as f64 / recent_count as f64;
-        
+
         distraction_ratio >= self.distraction_threshold
     }
 
@@ -120,7 +121,7 @@ impl FocusMonitor {
             "学习时间到！让我们继续努力！",
             "检测到你在看非学习内容，该集中注意力了！",
         ];
-        
+
         let index = (Instant::now().elapsed().as_secs() as usize) % messages.len();
         messages[index].to_string()
     }
@@ -134,7 +135,7 @@ impl FocusMonitor {
         let analysis_count = self.analysis_history.len() as u64;
         if analysis_count > 0 {
             let avg_interval = total_time / analysis_count as u32;
-            
+
             for result in &self.analysis_history {
                 match result.category.as_str() {
                     "study" => study_time += avg_interval,

@@ -50,17 +50,23 @@ fn load_state_from_jsonl() -> AppPolicyState {
                 continue;
             }
             if let Some(target) = focus_guard_desktop::json_string_field(line, "target") {
-                let reason = focus_guard_desktop::json_string_field(line, "reason").unwrap_or_default();
-                let outcome = focus_guard_desktop::json_string_field(line, "outcome").unwrap_or_default();
-                let timestamp_ms = focus_guard_desktop::json_u64_field(line, "timestamp_ms").unwrap_or(0);
-                let granted_minutes = focus_guard_desktop::json_u32_field(line, "granted_minutes").unwrap_or(0);
-                state.activity_log.push(focus_guard_desktop::ActivityRecord {
-                    timestamp_ms,
-                    target,
-                    reason,
-                    granted_minutes,
-                    outcome,
-                });
+                let reason =
+                    focus_guard_desktop::json_string_field(line, "reason").unwrap_or_default();
+                let outcome =
+                    focus_guard_desktop::json_string_field(line, "outcome").unwrap_or_default();
+                let timestamp_ms =
+                    focus_guard_desktop::json_u64_field(line, "timestamp_ms").unwrap_or(0);
+                let granted_minutes =
+                    focus_guard_desktop::json_u32_field(line, "granted_minutes").unwrap_or(0);
+                state
+                    .activity_log
+                    .push(focus_guard_desktop::ActivityRecord {
+                        timestamp_ms,
+                        target,
+                        reason,
+                        granted_minutes,
+                        outcome,
+                    });
             }
         }
     }

@@ -1,29 +1,38 @@
 @echo off
 chcp 65001 >nul 2>&1
+
+if /i not "%~1"=="--worker" (
+    powershell -NoProfile -WindowStyle Hidden -Command "Start-Process -WindowStyle Hidden -FilePath 'cmd.exe' -ArgumentList '/c', '\"%~f0\" --worker'"
+    exit /b 0
+)
+
 setlocal enabledelayedexpansion
-
-echo ========================================
-echo   Focus Guard - Start
-echo ========================================
-echo.
-
 cd /d "%~dp0"
 
-REM Kill any leftover processes from previous runs
-taskkill /IM focus-guard-server.exe /F >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000" ^| findstr "LISTENING"') do taskkill /PID %%a /F >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3001" ^| findstr "LISTENING"') do taskkill /PID %%a /F >nul 2>&1
+set LOG_DIR=%~dp0logs
+set START_LOG=%LOG_DIR%\start.log
+set SERVER_OUT_LOG=%LOG_DIR%\server.out.log
+set SERVER_ERR_LOG=%LOG_DIR%\server.err.log
+set WEB_OUT_LOG=%LOG_DIR%\web.out.log
+set WEB_ERR_LOG=%LOG_DIR%\web.err.log
+
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
+
+echo [%date% %time%] Focus Guard start > "%START_LOG%"
+
+call :log "Stopping stale services"
+taskkill /IM focus-guard-server.exe /F >> "%START_LOG%" 2>&1
+taskkill /IM focus-guard-native-host.exe /F >> "%START_LOG%" 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000" ^| findstr "LISTENING"') do taskkill /PID %%a /F >> "%START_LOG%" 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3001" ^| findstr "LISTENING"') do taskkill /PID %%a /F >> "%START_LOG%" 2>&1
 timeout /t 1 /nobreak >nul
 
-REM Check Rust
 where cargo >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Rust not found. Install: https://rustup.rs
-    pause
+    call :log "ERROR: Rust cargo not found"
     exit /b 1
 )
 
-REM Check Python
 set PYTHON_CMD=
 where python >nul 2>&1
 if %errorlevel% equ 0 (
@@ -35,109 +44,59 @@ if %errorlevel% equ 0 (
     )
 )
 
-REM ==============================
-REM Step 1: Build Rust binaries
-REM ==============================
-echo [1/3] Checking Rust binaries...
-
-set NEED_BUILD=0
 set RELEASE_DIR=src-tauri\target\release
+set SERVER_EXE=%CD%\%RELEASE_DIR%\focus-guard-server.exe
+set HOST_EXE=%CD%\%RELEASE_DIR%\focus-guard-native-host.exe
 
-if not exist "%RELEASE_DIR%" (
-    echo     release directory not found, building...
-    set NEED_BUILD=1
-    goto :do_build
-)
+call :build
 
-set SERVER_EXISTS=0
-set HOST_EXISTS=0
-
-if exist "%RELEASE_DIR%\focus-guard-server.exe" set SERVER_EXISTS=1
-if exist "%RELEASE_DIR%\focus-guard-native-host.exe" set HOST_EXISTS=1
-
-if %SERVER_EXISTS% equ 1 (
-    if %HOST_EXISTS% equ 1 (
-        echo     Binaries found:
-        echo       - focus-guard-server.exe
-        echo       - focus-guard-native-host.exe
-        goto :skip_build
-    )
-)
-
-echo     Missing binaries:
-if %SERVER_EXISTS% equ 0 echo       - focus-guard-server.exe
-if %HOST_EXISTS% equ 0 echo       - focus-guard-native-host.exe
-set NEED_BUILD=1
-
-:do_build
-echo     Building (may take a few minutes)...
-cargo build --manifest-path src-tauri\Cargo.toml --release
-if %errorlevel% neq 0 (
-    echo.
-    echo [ERROR] Build failed
-    pause
+if not exist "%SERVER_EXE%" (
+    call :log "ERROR: focus-guard-server.exe missing after build"
     exit /b 1
 )
-echo     Build complete!
 
-:skip_build
-
-REM ==============================
-REM Step 2: Start backend server
-REM ==============================
-echo.
-echo [2/3] Starting server on port 3001...
-
-REM Use start /b to run in background without new window
-start /b "" cmd /c ""%RELEASE_DIR%\focus-guard-server.exe" >nul 2>&1"
+call :log "Starting server on port 3001"
+powershell -NoProfile -WindowStyle Hidden -Command "try { $p = Start-Process -WindowStyle Hidden -FilePath '%SERVER_EXE%' -WorkingDirectory '%CD%' -PassThru; Add-Content -LiteralPath '%START_LOG%' -Value ('Server PID: ' + $p.Id); exit 0 } catch { Add-Content -LiteralPath '%START_LOG%' -Value ('ERROR: failed to start server: ' + $_.Exception.Message); exit 1 }"
+if %errorlevel% neq 0 (
+    call :log "ERROR: server process launch failed"
+    exit /b 1
+)
 timeout /t 2 /nobreak >nul
 
-curl -s http://127.0.0.1:3001/health >nul 2>&1
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri 'http://127.0.0.1:3001/health' -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >> "%START_LOG%" 2>&1
 if %errorlevel% equ 0 (
-    echo     Server: OK
+    call :log "Server health OK"
 ) else (
-    echo     Server starting...
+    call :log "Server health pending"
 )
-
-REM ==============================
-REM Step 3: Start desktop UI
-REM ==============================
-echo.
-echo [3/3] Starting UI on port 3000...
 
 if defined PYTHON_CMD (
-    start /b cmd /c "%PYTHON_CMD% -m http.server 3000 --bind 0.0.0.0 --directory desktop >nul 2>&1"
+    call :log "Starting browser UI on port 3000"
+    powershell -NoProfile -WindowStyle Hidden -Command "try { $p = Start-Process -WindowStyle Hidden -FilePath '%PYTHON_CMD%' -ArgumentList '-m','http.server','3000','--bind','0.0.0.0','--directory','desktop' -WorkingDirectory '%CD%' -PassThru; Add-Content -LiteralPath '%START_LOG%' -Value ('UI PID: ' + $p.Id); exit 0 } catch { Add-Content -LiteralPath '%START_LOG%' -Value ('ERROR: failed to start UI: ' + $_.Exception.Message); exit 1 }"
+    if %errorlevel% neq 0 (
+        call :log "ERROR: browser UI launch failed"
+        exit /b 1
+    )
+    timeout /t 1 /nobreak >nul
+    if not "%FG_NO_BROWSER%"=="1" start "" http://localhost:3000
 ) else (
-    start "" "%~dp0desktop\index.html"
+    call :log "Python not found; opening desktop/index.html directly"
+    if not "%FG_NO_BROWSER%"=="1" start "" "%~dp0desktop\index.html"
 )
 
-timeout /t 1 /nobreak >nul
+call :log "Startup complete"
+exit /b 0
 
-REM ==============================
-REM Done
-REM ==============================
-echo.
-echo ========================================
-echo   All services started!
-echo ========================================
-echo.
-echo   UI:  http://localhost:3000
-echo   API: http://localhost:3001
-echo.
-echo   Chrome extension: chrome://extensions
-echo   Enable Developer Mode - Load Unpacked - select extension/ folder
-echo.
-echo   Press any key to stop all services.
-echo ========================================
-echo.
+:build
+call :log "Building release binaries"
+cargo build --manifest-path src-tauri\Cargo.toml --release >> "%START_LOG%" 2>&1
+if %errorlevel% neq 0 (
+    call :log "ERROR: cargo build failed"
+    exit /b 1
+)
+call :log "Build complete"
+exit /b 0
 
-start http://localhost:3000
-
-REM Wait for user to press a key, then clean up
-pause >nul
-
-echo.
-echo Stopping services...
-taskkill /IM focus-guard-server.exe /F >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000" ^| findstr "LISTENING"') do taskkill /PID %%a /F >nul 2>&1
-echo Done.
+:log
+echo [%date% %time%] %~1 >> "%START_LOG%"
+exit /b 0

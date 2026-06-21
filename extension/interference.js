@@ -10,6 +10,7 @@
     "看网课/学习视频",
     "找灵感",
   ];
+  const ALLOW_MINUTES = 5;
 
   let currentTabId = null;
 
@@ -80,15 +81,25 @@
           }
 
           if (resp.approved) {
-            status.textContent = "✅ 理由通过，放行 10 分钟";
-            status.className = "fg-ai-status fg-approved";
-            setTimeout(() => overlay.remove(), 2000);
+            chrome.runtime.sendMessage(
+              {
+                type: "submit_intent",
+                target: ctx.target,
+                reason,
+                minutes: ALLOW_MINUTES,
+                category: "study",
+                expiryAction: "check_in",
+                saveCandidate: true,
+              },
+              () => {
+                status.textContent = `✅ 理由通过，放行 ${ALLOW_MINUTES} 分钟`;
+                status.className = "fg-ai-status fg-approved";
+                setTimeout(() => overlay.remove(), 1200);
+              },
+            );
           } else {
-            status.textContent = "❌ " + (resp.message || "理由不合理，页面将被关闭");
+            status.textContent = "❌ " + (resp.message || "理由不合理，请回到专注或重新填写");
             status.className = "fg-ai-status fg-rejected";
-            setTimeout(() => {
-              chrome.runtime.sendMessage({ type: "close_current_tab" });
-            }, 3000);
           }
         },
       );

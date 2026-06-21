@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisResult {
@@ -63,18 +63,21 @@ impl AiAnalyzer {
         Self { endpoint, model }
     }
 
-    pub async fn analyze_screenshot(&self, image_data: &[u8]) -> Result<AnalysisResult, Box<dyn std::error::Error>> {
+    pub async fn analyze_screenshot(
+        &self,
+        image_data: &[u8],
+    ) -> Result<AnalysisResult, Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
-        
+
         let base64_image = STANDARD.encode(image_data);
         let data_url = format!("data:image/png;base64,{}", base64_image);
-        
+
         let prompt = r#"Analyze this screenshot and classify what the user is doing.
 Return ONLY JSON (no other text):
 {
     "category": "study" or "distraction" or "unknown",
     "confidence": 0.0 to 1.0,
-    "description": "brief description of what user is doing"
+    "description": "用简体中文简要描述用户正在做什么"
 }
 
 Classification criteria:
@@ -82,6 +85,7 @@ Classification criteria:
 - distraction: watching videos, social media, gaming, browsing news, chatting
 - unknown: cannot determine, desktop, lock screen
 
+Keep JSON field names and category values in English, but write description in Simplified Chinese.
 Return JSON only, nothing else."#;
 
         let request = ChatCompletionRequest {
@@ -89,10 +93,12 @@ Return JSON only, nothing else."#;
             messages: vec![ChatMessage {
                 role: "user".to_string(),
                 content: vec![
-                    ContentPart::ImageUrl { 
-                        image_url: ImageUrlDetail { url: data_url } 
+                    ContentPart::ImageUrl {
+                        image_url: ImageUrlDetail { url: data_url },
                     },
-                    ContentPart::Text { text: prompt.to_string() },
+                    ContentPart::Text {
+                        text: prompt.to_string(),
+                    },
                 ],
             }],
             stream: false,
@@ -106,13 +112,15 @@ Return JSON only, nothing else."#;
             .await?;
 
         let chat_response: ChatCompletionResponse = response.json().await?;
-        
-        let content = chat_response.choices.first()
+
+        let content = chat_response
+            .choices
+            .first()
             .map(|c| c.message.content.clone())
             .unwrap_or_default();
-        
+
         let result = self.parse_response(&content)?;
-        
+
         Ok(result)
     }
 
@@ -128,16 +136,11 @@ Return JSON only, nothing else."#;
         };
 
         let parsed: serde_json::Value = serde_json::from_str(json_str)?;
-        
-        let category = parsed["category"]
-            .as_str()
-            .unwrap_or("unknown")
-            .to_string();
-        
-        let confidence = parsed["confidence"]
-            .as_f64()
-            .unwrap_or(0.5);
-        
+
+        let category = parsed["category"].as_str().unwrap_or("unknown").to_string();
+
+        let confidence = parsed["confidence"].as_f64().unwrap_or(0.5);
+
         let description = parsed["description"]
             .as_str()
             .unwrap_or("unable to parse description")
@@ -153,7 +156,11 @@ Return JSON only, nothing else."#;
 
     pub async fn check_server_status(&self) -> bool {
         let client = reqwest::Client::new();
-        match client.get(format!("{}/v1/models", self.endpoint)).send().await {
+        match client
+            .get(format!("{}/v1/models", self.endpoint))
+            .send()
+            .await
+        {
             Ok(response) => response.status().is_success(),
             Err(_) => false,
         }

@@ -71,6 +71,18 @@
       <section class="panel wide">
         <div class="section-head">
           <div>
+            <h2>专注总结</h2>
+            <p class="hint">按巡检间隔估算，桌面无变化的时间不计入专注</p>
+          </div>
+        </div>
+        <div id="summary-daily" class="summary-grid"></div>
+        <div id="summary-hourly" class="summary-list"></div>
+        <div id="summary-targets" class="summary-chart-panel"></div>
+      </section>
+
+      <section class="panel wide">
+        <div class="section-head">
+          <div>
             <h2>AI 摸鱼检测</h2>
             <p class="hint">截屏分析桌面内容，检测是否在摸鱼</p>
           </div>
@@ -104,20 +116,76 @@
           <span id="ai-status-dot" class="status-dot"></span>
           <span id="local-ai-status" class="pill muted-pill">未连接</span>
         </div>
+        <div class="scheduled-detect-row">
+          <label class="switch-row">
+            <input id="scheduled-detect-enabled" type="checkbox" />
+            <span>后台定时巡检</span>
+          </label>
+          <label class="interval-control">
+            <span>间隔</span>
+            <input id="scheduled-detect-interval" type="number" min="1" max="120" step="1" />
+            <span>分钟</span>
+          </label>
+          <span id="scheduled-detect-status" class="pill muted-pill">未启用</span>
+        </div>
         <div id="detect-result" class="detect-result hidden"></div>
       </section>
 
       <section class="panel wide">
         <div class="section-head">
-          <h2>最近记录</h2>
+          <div>
+            <h2>AI 判断记录</h2>
+            <p class="hint">最近 20 次桌面截图分析，最新在顶部</p>
+          </div>
           <div class="actions">
             <button id="export-csv" type="button">CSV</button>
             <button id="export-json" type="button">JSON</button>
           </div>
         </div>
+        <div class="focus-totals">
+          <div>
+            <span>近 20 次学习/工作</span>
+            <strong id="productive-time">0 分钟</strong>
+          </div>
+          <div>
+            <span>近 20 次摸鱼</span>
+            <strong id="distracting-time">0 分钟</strong>
+          </div>
+        </div>
         <div id="activity-log" class="activity-log"></div>
       </section>
     </main>
+
+    <div id="image-preview" class="image-preview hidden" aria-hidden="true">
+      <div id="image-preview-frame" class="preview-frame" role="dialog" aria-modal="true" aria-label="截图预览">
+        <button id="image-preview-close" class="preview-close" type="button" aria-label="关闭预览">×</button>
+        <div id="image-preview-stage" class="preview-stage">
+          <img id="image-preview-img" alt="AI 判断记录截图预览" draggable="false" />
+          <div id="image-preview-chart" class="preview-chart" hidden></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="intervention-modal" class="intervention-modal hidden" aria-hidden="true">
+      <div class="intervention-card" role="dialog" aria-modal="true" aria-labelledby="intervention-title">
+        <div class="intervention-icon">!</div>
+        <div class="intervention-body">
+          <h2 id="intervention-title">Focus Guard 检测到摸鱼</h2>
+          <p id="intervention-reason" class="intervention-reason"></p>
+          <p id="intervention-window" class="intervention-window"></p>
+          <div id="intervention-presets" class="intervention-presets"></div>
+          <label class="intervention-input-row">
+            <span>你现在在做什么？</span>
+            <input id="intervention-input" type="text" maxlength="120" placeholder="例如：用于登录中转站进行开发" />
+          </label>
+          <div id="intervention-status" class="intervention-status"></div>
+          <div class="intervention-actions">
+            <button id="intervention-focus-btn" type="button">我去专注</button>
+            <button id="intervention-submit-btn" type="button" class="btn-primary">提交给 AI 审核</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script src="app.js"></script>
   </body>

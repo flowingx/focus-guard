@@ -6,3 +6,10 @@ node_modules/
 .DS_Store
 Thumbs.db
 models/
+logs/
+.env
+.env.local
+.env.*.local
+providers.json
+scheduled-detect.json
+ai-records.json

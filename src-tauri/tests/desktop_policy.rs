@@ -1,10 +1,9 @@
 use focus_guard_desktop::{
-    append_activity_jsonl, apply_ai_policy, classify_context_from_llm_response,
-    csv_escape, decode_native_message, encode_native_message, evaluate_app_focus,
-    export_activity_csv, handle_native_json, is_target_allowlisted,
-    json_escape, local_ai_request_json, matches_host_rule, parse_http_endpoint,
-    read_foreground_window, strip_www, AiClassification, AiContext, AppEvent,
-    AppMonitorConfig, AppPolicyState, Decision, LocalAiConfig,
+    append_activity_jsonl, apply_ai_policy, classify_context_from_llm_response, csv_escape,
+    decode_native_message, encode_native_message, evaluate_app_focus, export_activity_csv,
+    handle_native_json, is_target_allowlisted, json_escape, local_ai_request_json,
+    matches_host_rule, parse_http_endpoint, read_foreground_window, strip_www, AiClassification,
+    AiContext, AppEvent, AppMonitorConfig, AppPolicyState, Decision, LocalAiConfig,
 };
 
 #[test]
@@ -254,6 +253,8 @@ fn local_ai_request_includes_context_and_model() {
     assert!(request.contains("chrome.exe"));
     assert!(request.contains("Bilibili - Chrome"));
     assert!(request.contains("data:image/png;base64,abc123"));
+    assert!(request.contains("reason value in Simplified Chinese"));
+    assert!(request.contains("中文原因"));
 }
 
 #[test]
@@ -555,7 +556,14 @@ fn decode_native_message_rejects_too_short() {
 #[test]
 fn decode_native_message_rejects_truncated() {
     let len_bytes = (100u32).to_le_bytes();
-    let data = [len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3], b'a', b'b'];
+    let data = [
+        len_bytes[0],
+        len_bytes[1],
+        len_bytes[2],
+        len_bytes[3],
+        b'a',
+        b'b',
+    ];
     let result = decode_native_message(&data);
 
     assert!(result.is_err());
@@ -564,7 +572,14 @@ fn decode_native_message_rejects_truncated() {
 #[test]
 fn decode_native_message_rejects_invalid_utf8() {
     let len_bytes = (2u32).to_le_bytes();
-    let data = [len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3], 0xFF, 0xFE];
+    let data = [
+        len_bytes[0],
+        len_bytes[1],
+        len_bytes[2],
+        len_bytes[3],
+        0xFF,
+        0xFE,
+    ];
     let result = decode_native_message(&data);
 
     assert!(result.is_err());

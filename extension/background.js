@@ -229,6 +229,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   delete sessions[target];
 
   await chrome.storage.local.set({ sessions, activityLog });
+  const grantedMinutes = Math.max(
+    1,
+    Math.round(((session.expiresAt ?? Date.now()) - (session.startedAt ?? Date.now())) / 60_000),
+  );
 
   if (session.expiryAction === "close_tab" && session.tabId) {
     await safeTabRemove(session.tabId);
@@ -254,7 +258,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     title: "Focus Guard",
     message:
       session.expiryAction === "check_in"
-        ? `10 分钟到了：${session.reason}。你现在还在学习吗？`
+        ? `${grantedMinutes} 分钟到了：${session.reason}。你现在还在学习吗？`
         : `休息时间到了：${session.reason}。我会帮你关掉这个标签页。`,
     priority: 2,
   });
