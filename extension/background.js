@@ -125,10 +125,13 @@ const VIDEO_DOMAINS = [
 
 const NATIVE_HOST = "com.focus_guard.desktop";
 const TEMPORARY_ALLOW_MINUTES = 30;
+const POLICY_CONFIG_URL = "http://127.0.0.1:3001/policy-config";
 const AI_DETECT_URL = "http://127.0.0.1:3001/detect";
 const AI_DETECT_ALARM = "ai_periodic_detect";
 const AI_DETECT_COOLDOWN_MS = 30_000;
+const POLICY_SYNC_COOLDOWN_MS = 2_000;
 let lastAiDetectTime = 0;
+let lastPolicySyncTime = 0;
 const pendingUnknownPrompts = new Map();
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -209,13 +212,20 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 
   const target = alarm.name.slice("session:".length);
-  const { sessions = {}, activityLog = [] } = await chrome.storage.local.get([
+  const { config = {}, sessions = {}, activityLog = [] } = await chrome.storage.local.get([
+    "config",
     "sessions",
     "activityLog",
   ]);
   const session = sessions[target];
 
   if (!session || session.expiresAt > Date.now()) {
+    return;
+  }
+
+  if (isAllowlistedTarget(target, config)) {
+    delete sessions[target];
+    await chrome.storage.local.set({ sessions });
     return;
   }
 
@@ -245,11 +255,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       )}&url=${encodeURIComponent(session.originalUrl ?? "")}`,
     );
 
-    if (session.tabId) {
-      await safeTabUpdate(session.tabId, { url: checkInUrl, active: true });
-    } else {
-      await safeTabCreate({ url: checkInUrl, active: true });
-    }
+    await safeTabCreate({ url: checkInUrl, active: true });
   }
 
   chrome.notifications.create(`expired:${target}:${Date.now()}`, {
@@ -270,39 +276,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   });
 });
 
-chrome.storage.onChanged.addListener(async (changes, area) => {
-  if (area !== "local" || !changes.pendingInterference) return;
-  const ctx = changes.pendingInterference.newValue;
-  if (!ctx || !ctx.reason) return;
-
-  await chrome.storage.local.remove("pendingInterference");
-
-  try {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    const tab = tabs[0];
-    if (!tab || !tab.url || !tab.url.startsWith("http")) return;
-
-    await chrome.storage.local.set({
-      aiDetectContext: {
-        tabId: tab.id,
-        target: `site:${new URL(tab.url).hostname}`,
-        reason: ctx.reason,
-        category: ctx.category,
-        confidence: ctx.confidence,
-      },
-    });
-
-    await chrome.scripting.insertCSS({
-      files: ["interference.css"],
-      target: { tabId: tab.id },
-    });
-    await chrome.scripting.executeScript({
-      files: ["interference.js"],
-      target: { tabId: tab.id },
-    });
-  } catch {}
-});
-
 async function handleMessage(message, sender) {
   if (message.type === "get_intent_prompt") {
     const { candidates = {} } = await chrome.storage.local.get("candidates");
@@ -319,21 +292,21 @@ async function handleMessage(message, sender) {
 
   if (message.type === "save_config") {
     const { config = {} } = await chrome.storage.local.get("config");
-    await chrome.storage.local.set({
-      config: {
-        ...config,
-        focusMode: message.config?.focusMode !== false,
-        defaultMinutes: validMinutes(message.config?.defaultMinutes, config.defaultMinutes ?? 20),
-        highRiskDomains: cleanRuleList(
-          message.config?.highRiskDomains,
-          config.highRiskDomains ?? DEFAULT_HIGH_RISK_DOMAINS,
-        ),
-        allowlistRules: cleanRuleList(
-          message.config?.allowlistRules,
-          config.allowlistRules ?? DEFAULT_ALLOWLIST_RULES,
-        ),
-      },
-    });
+    const nextConfig = {
+      ...config,
+      focusMode: message.config?.focusMode !== false,
+      defaultMinutes: validMinutes(message.config?.defaultMinutes, config.defaultMinutes ?? 20),
+      highRiskDomains: cleanRuleList(
+        message.config?.highRiskDomains,
+        config.highRiskDomains ?? DEFAULT_HIGH_RISK_DOMAINS,
+      ),
+      allowlistRules: cleanRuleList(
+        message.config?.allowlistRules,
+        config.allowlistRules ?? DEFAULT_ALLOWLIST_RULES,
+      ),
+    };
+    await chrome.storage.local.set({ config: nextConfig });
+    await pushPolicyConfigToServer(nextConfig);
     return { ok: true };
   }
 
@@ -384,6 +357,7 @@ async function handleMessage(message, sender) {
 async function evaluateNavigation(url) {
   const host = normalizeHost(url);
   const target = `site:${host}`;
+  await syncPolicyConfigFromServer();
   const { config, sessions = {}, temporaryAllows = {} } = await chrome.storage.local.get([
     "config",
     "sessions",
@@ -423,6 +397,40 @@ async function evaluateNavigation(url) {
   return { action: "intent_required", target };
 }
 
+async function syncPolicyConfigFromServer() {
+  const now = Date.now();
+  if (now - lastPolicySyncTime < POLICY_SYNC_COOLDOWN_MS) {
+    return;
+  }
+  lastPolicySyncTime = now;
+
+  try {
+    const response = await fetch(POLICY_CONFIG_URL, {
+      signal: AbortSignal.timeout(1200),
+    });
+    if (!response.ok) return;
+    const remote = await response.json();
+    const { config = {} } = await chrome.storage.local.get("config");
+    await chrome.storage.local.set({
+      config: {
+        ...config,
+        focusMode: remote.focusMode !== false,
+        defaultMinutes: validMinutes(remote.defaultMinutes, config.defaultMinutes ?? 20),
+        highRiskDomains: cleanRuleList(
+          remote.highRiskDomains,
+          config.highRiskDomains ?? DEFAULT_HIGH_RISK_DOMAINS,
+        ),
+        allowlistRules: cleanRuleList(
+          remote.allowlistRules,
+          config.allowlistRules ?? DEFAULT_ALLOWLIST_RULES,
+        ),
+      },
+    });
+  } catch {
+    // The desktop server is optional for extension-only use.
+  }
+}
+
 async function addUnknownSiteDecision(message) {
   const host = siteHostFromMessage(message);
 
@@ -439,17 +447,19 @@ async function addUnknownSiteDecision(message) {
 
   if (message.decision === "control") {
     const highRiskDomains = config.highRiskDomains ?? DEFAULT_HIGH_RISK_DOMAINS;
+    const nextConfig = {
+      ...config,
+      highRiskDomains: unique([...highRiskDomains, host]),
+    };
     await chrome.storage.local.set({
-      config: {
-        ...config,
-        highRiskDomains: unique([...highRiskDomains, host]),
-      },
+      config: nextConfig,
       lastRuleChange: {
         list: "highRiskDomains",
         rule: host,
         timestamp: Date.now(),
       },
     });
+    await pushPolicyConfigToServer(nextConfig);
 
     return {
       ok: true,
@@ -463,17 +473,19 @@ async function addUnknownSiteDecision(message) {
 
   if (message.decision === "ignore") {
     const allowlistRules = config.allowlistRules ?? DEFAULT_ALLOWLIST_RULES;
+    const nextConfig = {
+      ...config,
+      allowlistRules: unique([...allowlistRules, host]),
+    };
     await chrome.storage.local.set({
-      config: {
-        ...config,
-        allowlistRules: unique([...allowlistRules, host]),
-      },
+      config: nextConfig,
       lastRuleChange: {
         list: "allowlistRules",
         rule: host,
         timestamp: Date.now(),
       },
     });
+    await pushPolicyConfigToServer(nextConfig);
 
     return { ok: true, nextUrl: fromToast ? null : originalUrl };
   }
@@ -621,6 +633,14 @@ function isAllowlistedSite(host, rules) {
   return rules.some((rule) => matchesHostRule(host, rule));
 }
 
+function isAllowlistedTarget(target, config) {
+  if (!target?.startsWith("site:")) {
+    return false;
+  }
+  const host = target.slice("site:".length);
+  return isAllowlistedSite(host, configWithDefaults(config).allowlistRules);
+}
+
 function normalizeHost(url) {
   return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
 }
@@ -670,6 +690,25 @@ function configWithDefaults(config) {
   };
 }
 
+async function pushPolicyConfigToServer(config) {
+  try {
+    const withDefaults = configWithDefaults(config);
+    await fetch(POLICY_CONFIG_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        focusMode: withDefaults.focusMode,
+        highRiskDomains: withDefaults.highRiskDomains,
+        allowlistRules: withDefaults.allowlistRules,
+        defaultMinutes: withDefaults.defaultMinutes,
+      }),
+      signal: AbortSignal.timeout(1200),
+    });
+  } catch {
+    // The desktop server may be closed while the browser extension is still active.
+  }
+}
+
 function cleanRuleList(values, fallback) {
   if (!Array.isArray(values)) {
     return fallback;
@@ -703,6 +742,11 @@ function matchesHostRule(host, rule) {
   if (cleanRule.startsWith("*.") && cleanRule.endsWith(".*")) {
     const token = cleanRule.slice(2, -2);
     return host.split(".").includes(token);
+  }
+
+  if (cleanRule.startsWith("*") && cleanRule.endsWith("*")) {
+    const token = cleanRule.slice(1, -1).replace(/^\.+|\.+$/g, "");
+    return Boolean(token) && host.split(".").includes(token);
   }
 
   if (!cleanRule.includes(".")) {
@@ -756,6 +800,110 @@ function notifyDesktop(message) {
   }
 }
 
+function classifyTitleText(text) {
+  const value = String(text || "").toLowerCase();
+  if (
+    /剪辑|搞笑|娱乐|游戏|直播|番剧|动漫|综艺/.test(text || "") ||
+    /(clip|game|gaming|live|stream|anime)/.test(value)
+  ) {
+    return "entertainment_title";
+  }
+  if (
+    /课程|教程|网课|公开课|讲座|概率|统计|编译原理|数学|学习/.test(text || "") ||
+    /(course|tutorial|lecture|math|compiler)/.test(value)
+  ) {
+    return "study_title";
+  }
+  return "generic_title";
+}
+
+function normalizeAiCategory(category) {
+  const value = String(category || "unknown").toLowerCase();
+  if (value === "distraction") return "distracting";
+  if (["study", "work", "productive"].includes(value)) return "productive";
+  if (["distracting", "entertainment"].includes(value)) return "distracting";
+  return value;
+}
+
+function bilibiliUrlKind(url) {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname;
+    if (path.startsWith("/video/") || /^\/BV/i.test(path)) return "video";
+    if (path.startsWith("/bangumi/")) return "bangumi";
+    if (parsed.hostname.includes("live.bilibili.com")) return "live";
+    if (path.startsWith("/search")) return "search";
+    if (path === "/" || path === "") return "home";
+  } catch {}
+  return "unknown";
+}
+
+function hintsFromText(text) {
+  const hints = new Set();
+  const value = String(text || "").toLowerCase();
+  if (/课程|教程|网课|公开课|讲座|课堂|学习/.test(text || "")) hints.add("course_hint");
+  if (/教程|教学|tutorial/.test(value) || /教程|教学/.test(text || "")) hints.add("tutorial_hint");
+  if (/lecture/.test(value) || /讲座|公开课/.test(text || "")) hints.add("lecture_hint");
+  if (/概率|统计|编译原理|数学|考试|试卷/.test(text || "")) hints.add("study_hint");
+  if (/动漫|动画|番剧/.test(text || "")) hints.add("anime_hint");
+  if (/番剧/.test(text || "")) hints.add("bangumi_hint");
+  if (/游戏|game|gaming/.test(value) || /游戏/.test(text || "")) hints.add("game_hint");
+  if (/直播|live|stream/.test(value) || /直播/.test(text || "")) hints.add("live_hint");
+  if (/剪辑|搞笑|鬼畜|clip/.test(value) || /剪辑|搞笑|鬼畜/.test(text || "")) hints.add("clip_hint");
+  return [...hints].slice(0, 8);
+}
+
+async function getPageMetadata(tab) {
+  let parsed;
+  try {
+    parsed = new URL(tab.url);
+  } catch {
+    return { site: "", url_kind: "unknown", title_class: classifyTitleText(tab.title || ""), content_hints: [] };
+  }
+
+  const isBilibili = parsed.hostname.includes("bilibili.com");
+  const metadata = {
+    site: isBilibili ? "bilibili" : "",
+    url_kind: isBilibili ? bilibiliUrlKind(tab.url) : "unknown",
+    title_class: classifyTitleText(tab.title || ""),
+    content_hints: hintsFromText(tab.title || ""),
+  };
+
+  if (!isBilibili || !tab.id) return metadata;
+
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => {
+        const pickText = (selector) => {
+          const node = document.querySelector(selector);
+          return node ? String(node.textContent || node.content || "").slice(0, 160) : "";
+        };
+        return {
+          title: document.title,
+          description: document.querySelector('meta[name="description"]')?.content?.slice(0, 200) || "",
+          category: [
+            pickText(".video-data .a-crumbs"),
+            pickText(".firstchannel-tag"),
+            pickText(".channel-name"),
+            pickText(".media-info .media-right .media-desc"),
+          ]
+            .filter(Boolean)
+            .join(" "),
+        };
+      },
+    });
+    const value = result?.result || {};
+    const hintText = [value.title, value.description, value.category].filter(Boolean).join(" ");
+    metadata.title_class = classifyTitleText(value.title || tab.title || "");
+    metadata.content_hints = [...new Set([...metadata.content_hints, ...hintsFromText(hintText)])].slice(0, 8);
+  } catch {
+    // Some pages block script injection; title and URL metadata are enough.
+  }
+
+  return metadata;
+}
+
 async function triggerAiDetect(source) {
   const now = Date.now();
   if (now - lastAiDetectTime < AI_DETECT_COOLDOWN_MS) {
@@ -769,11 +917,19 @@ async function triggerAiDetect(source) {
     if (!tab || !tab.url || !tab.url.startsWith("http")) {
       return;
     }
+    const pageMetadata = await getPageMetadata(tab);
 
     const response = await fetch(AI_DETECT_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({
+        source,
+        browser_context: {
+          domain: new URL(tab.url).hostname,
+          title: tab.title || "",
+          page_metadata: pageMetadata,
+        },
+      }),
       signal: AbortSignal.timeout(90_000),
     });
 
@@ -787,7 +943,8 @@ async function triggerAiDetect(source) {
       return;
     }
 
-    const isDistracting = result.category === "distracting" || result.category === "distraction";
+    const category = normalizeAiCategory(result.category);
+    const isDistracting = category === "distracting";
 
     if (isDistracting) {
       await chrome.storage.local.set({
@@ -795,7 +952,7 @@ async function triggerAiDetect(source) {
           tabId: tab.id,
           target: `site:${new URL(tab.url).hostname}`,
           reason: result.reason,
-          category: result.category,
+          category,
           confidence: result.confidence,
         },
       });
@@ -814,7 +971,7 @@ async function triggerAiDetect(source) {
     aiDetectLog.push({
       timestamp: now,
       source,
-      category: result.category,
+      category,
       confidence: result.confidence,
       reason: result.reason,
       process: result.process_name,

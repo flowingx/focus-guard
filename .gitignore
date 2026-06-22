@@ -13,3 +13,8 @@ logs/
 providers.json
 scheduled-detect.json
 ai-records.json
+policy-config.json
+privacy-config.json
+category-rules.json
+__pycache__/
+*.pyc

@@ -20,12 +20,21 @@ if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>&1
 
 echo [%date% %time%] Focus Guard start > "%START_LOG%"
 
-call :log "Stopping stale services"
-taskkill /IM focus-guard-server.exe /F >> "%START_LOG%" 2>&1
-taskkill /IM focus-guard-native-host.exe /F >> "%START_LOG%" 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000" ^| findstr "LISTENING"') do taskkill /PID %%a /F >> "%START_LOG%" 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3001" ^| findstr "LISTENING"') do taskkill /PID %%a /F >> "%START_LOG%" 2>&1
-timeout /t 1 /nobreak >nul
+call :log "Stopping stale services via stop.bat"
+call "%~dp0stop.bat" >> "%START_LOG%" 2>&1
+
+if not defined FOCUS_GUARD_REDACTOR_PYTHON (
+    if exist "E:\Software\miniConda3\envs\cnocr\python.exe" (
+        set "FOCUS_GUARD_REDACTOR_PYTHON=E:\Software\miniConda3\envs\cnocr\python.exe"
+        call :log "Using bundled CnOCR conda env for screenshot redaction"
+    )
+)
+
+if not defined FOCUS_GUARD_CNOCR_MODEL_DIR (
+    if exist "%CD%\models\doc-densenet_lite_136-gru" (
+        set "FOCUS_GUARD_CNOCR_MODEL_DIR=%CD%\models\doc-densenet_lite_136-gru"
+    )
+)
 
 where cargo >nul 2>&1
 if %errorlevel% neq 0 (

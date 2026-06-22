@@ -2,8 +2,9 @@ use focus_guard_desktop::{
     append_activity_jsonl, apply_ai_policy, classify_context_from_llm_response, csv_escape,
     decode_native_message, encode_native_message, evaluate_app_focus, export_activity_csv,
     handle_native_json, is_target_allowlisted, json_escape, local_ai_request_json,
-    matches_host_rule, parse_http_endpoint, read_foreground_window, strip_www, AiClassification,
-    AiContext, AppEvent, AppMonitorConfig, AppPolicyState, Decision, LocalAiConfig,
+    matches_host_rule, parse_http_endpoint, read_foreground_window, read_visible_windows, strip_www,
+    AiClassification, AiContext, AppEvent, AppMonitorConfig, AppPolicyState, Decision,
+    LocalAiConfig,
 };
 
 #[test]
@@ -69,6 +70,11 @@ fn foreground_window_snapshot_is_safe_to_call() {
 }
 
 #[test]
+fn visible_window_snapshot_is_safe_to_call() {
+    let _ = read_visible_windows();
+}
+
+#[test]
 fn native_intent_messages_are_recorded_in_activity_log() {
     let mut state = AppPolicyState::new(AppMonitorConfig::default());
     let response = handle_native_json(
@@ -124,7 +130,7 @@ fn ai_policy_requires_two_consecutive_distracting_hits() {
         confidence: 0.9,
         reason: "short video feed".to_string(),
         suggested_action: "intent_required".to_string(),
-        error: None,
+        ..AiClassification::unknown("")
     };
 
     let first = apply_ai_policy(&mut state, "app:Chrome.exe", 1_000, &classification);
@@ -149,7 +155,7 @@ fn ai_policy_ignores_allowlisted_targets_even_when_model_flags_them() {
         confidence: 0.99,
         reason: "video visible".to_string(),
         suggested_action: "intent_required".to_string(),
-        error: None,
+        ..AiClassification::unknown("")
     };
 
     assert_eq!(
@@ -172,14 +178,14 @@ fn ai_policy_ignores_low_confidence_and_unknown_categories() {
         confidence: 0.5,
         reason: "maybe entertainment".to_string(),
         suggested_action: "none".to_string(),
-        error: None,
+        ..AiClassification::unknown("")
     };
     let unknown = AiClassification {
         category: "unknown".to_string(),
         confidence: 0.95,
         reason: "not enough context".to_string(),
         suggested_action: "none".to_string(),
-        error: None,
+        ..AiClassification::unknown("")
     };
 
     assert_eq!(
@@ -201,7 +207,7 @@ fn ai_policy_enters_cooldown_after_triggering() {
         confidence: 0.9,
         reason: "feed browsing".to_string(),
         suggested_action: "intent_required".to_string(),
-        error: None,
+        ..AiClassification::unknown("")
     };
 
     let _ = apply_ai_policy(&mut state, "app:Chrome.exe", 1_000, &classification);
@@ -219,13 +225,26 @@ fn ai_policy_enters_cooldown_after_triggering() {
 
 #[test]
 fn llm_response_parser_accepts_structured_json_only() {
-    let response = r#"{"category":"distracting","confidence":0.82,"reason":"Bilibili feed","suggested_action":"intent_required"}"#;
+    let response = r#"{"category":"distracting","confidence":0.82,"reason":"Bilibili feed","suggested_action":"intent_required","semantic_category":"B站娱乐视频","privacy_risk":"low"}"#;
     let parsed = classify_context_from_llm_response(response);
 
     assert_eq!(parsed.category, "distracting");
     assert_eq!(parsed.confidence, 0.82);
     assert_eq!(parsed.reason, "Bilibili feed");
     assert_eq!(parsed.suggested_action, "intent_required");
+    assert_eq!(parsed.semantic_category.as_deref(), Some("B站娱乐视频"));
+    assert_eq!(parsed.privacy_risk.as_deref(), Some("low"));
+}
+
+#[test]
+fn llm_response_parser_normalizes_entertainment_to_distracting() {
+    let response = r#"{"category":"entertainment","confidence":0.99,"reason":"B站游戏直播","suggested_action":"intent_required","semantic_category":"B站娱乐视频","privacy_risk":"low"}"#;
+    let parsed = classify_context_from_llm_response(response);
+
+    assert_eq!(parsed.category, "distracting");
+    assert_eq!(parsed.confidence, 0.99);
+    assert_eq!(parsed.suggested_action, "intent_required");
+    assert_eq!(parsed.semantic_category.as_deref(), Some("B站娱乐视频"));
 }
 
 #[test]
@@ -244,6 +263,9 @@ fn local_ai_request_includes_context_and_model() {
         process_name: "chrome.exe".to_string(),
         window_title: "Bilibili - Chrome".to_string(),
         screenshot_base64: Some("abc123".to_string()),
+        browser_domain: Some("bilibili.com".to_string()),
+        browser_title: Some("study_title".to_string()),
+        safe_signals: vec!["bilibili".to_string(), "study_signal".to_string()],
     };
 
     let request = local_ai_request_json(&config, &context);
@@ -255,6 +277,8 @@ fn local_ai_request_includes_context_and_model() {
     assert!(request.contains("data:image/png;base64,abc123"));
     assert!(request.contains("reason value in Simplified Chinese"));
     assert!(request.contains("中文原因"));
+    assert!(request.contains("semantic_category"));
+    assert!(request.contains("Do not quote private messages"));
 }
 
 #[test]

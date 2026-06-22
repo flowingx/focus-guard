@@ -1,6 +1,6 @@
 # Focus Guard 专注守门员
 
-Windows 为核心的专注守护应用。Chrome/Edge 扩展 + Rust 后端 + AI 截图分析，检测摸鱼行为并强制弹窗提醒。
+Windows 为核心的专注守护应用。Chrome/Edge 扩展 + Rust 后端 + AI 元信息检测，检测摸鱼行为并强制弹窗提醒。
 
 ## 系统架构
 
@@ -9,7 +9,7 @@ Chrome/Edge 扩展  ◄──Native Messaging──►  focus-guard-native-host 
                                                   │
                                           focus-guard-server (Rust, HTTP :3001)
                                                   │
-                                          Win32 API 全桌面截图 → AI 分析
+                                          Win32 API 窗口元信息 → AI 分析
                                                   │
                               ┌────────────────────┼────────────────────┐
                               │                    │                    │
@@ -19,14 +19,15 @@ Chrome/Edge 扩展  ◄──Native Messaging──►  focus-guard-native-host 
 
 ## 功能特性
 
-- **全桌面截图分析** — 2560×1440 全分辨率截图，DPI 自适应
+- **元信息优先检测** — 默认只使用前台窗口、可见窗口、进程名、浏览器域名/标题和脱敏信号
+- **手动截图分析** — 用户显式点击后才截图；云端模式仍需先本地脱敏
 - **多供应商 AI** — 支持本地 llama.cpp + 远程 API（OpenAI 格式）
 - **智能配置解析** — 粘贴 curl 命令自动提取 API 地址和密钥
 - **供应商管理** — 多供应商卡片展示，自动测试排序，一键切换
 - **强制干预** — AI 检测到摸鱼时弹出全屏遮罩，验证理由后决定放行或关闭页面
 - **定时轮询 + 中断触发** — 扩展在页面加载时和每 5 分钟自动检测
-- **后台定时巡检** — `focus-guard-server` 可按分钟定时截图分析，用于检测非浏览器应用摸鱼并弹出提醒
-- **AI 判断记录与总结** — 桌面 UI 显示最近 20 次截图分析，并用后端保留的最近 1000 条记录估算每日/每小时专注、摸鱼、无变化与网页/窗口时长
+- **后台定时巡检** — `focus-guard-server` 可按分钟定时读取窗口元信息，用于检测非浏览器应用摸鱼并弹出提醒
+- **AI 判断记录与总结** — 桌面 UI 显示最近 20 次元信息检测，并用后端保留的最近 1000 条记录估算每日/每小时专注、摸鱼、无变化与网页/窗口时长
 - **深色模式** — 支持手动切换（浅色/深色/跟随系统）
 
 ## 快速启动
@@ -133,11 +134,32 @@ python3 -m http.server 3000 --bind 0.0.0.0 --directory desktop/
 # 浏览器打开 http://localhost:3000
 ```
 
-Windows 后台启动后可用 `stop.bat` 停止 `focus-guard-server` 和本地 3000/3001 端口服务。
+Windows 下 `start.bat` 每次启动都会先调用 `stop.bat` 清理旧的 Focus Guard 服务和本地 3000/3001 端口占用；后台启动后也可随时用 `stop.bat` 停止 `focus-guard-server` 和本地 UI 服务。如果未手动设置 `FOCUS_GUARD_REDACTOR_PYTHON`，启动脚本会自动优先使用 `E:\Software\miniConda3\envs\cnocr\python.exe` 作为 CnOCR 脱敏环境。
 
 桌面 UI 的「AI 摸鱼检测」区域可以开启「后台定时巡检」，配置会保存到后端；只要 `focus-guard-server` 仍在后台运行，关闭浏览器页面后也会按设定间隔检测非浏览器应用。浏览器网页拦截仍由 Chrome/Edge 扩展处理。
 
-「专注总结」区域按巡检间隔估算今日与最近小时的学习/工作、摸鱼、未使用/无变化时长，并汇总网页/窗口停留时间；如果连续两次巡检的进程、窗口标题、分类和原因完全一致，会计为未使用/无变化，不计入专注时间。「AI 判断记录」区域仍只显示最近 20 次桌面截图分析，最新记录在滚动列表顶部。记录由后端保存到 `AppData\Local\FocusGuard\ai-records.json`，后端保留最近 1000 条用于总结统计。
+「专注总结」区域按巡检间隔估算今日与最近小时的学习/工作、摸鱼、未使用/无变化时长，并汇总网页/窗口停留时间；如果连续两次巡检的进程、窗口标题、分类和原因完全一致，会计为未使用/无变化，不计入专注时间。「AI 判断记录」区域仍只显示最近 20 次桌面分析，最新记录在滚动列表顶部。记录由后端保存到 `AppData\Local\FocusGuard\ai-records.json`，后端保留最近 1000 条用于总结统计；默认检测不截图，也不会把原始截图写入记录文件。
+
+隐私配置保存到 `AppData\Local\FocusGuard\privacy-config.json`。云端 AI 默认只接收低敏文本元信息，不接收截图。只有用户点击「手动截图分析」时，后端才会截图；该手动入口会强制走 CnOCR 本地脱敏，再把脱敏图发给云端分析，脱敏失败则不上传。脱敏成功后只会把脱敏图发给云端，并把脱敏图保存到 AI 判断记录用于预览；原始截图不会写入记录文件。本地模型可以使用原始截图分析，但默认也不持久化原图。可选 OCR sidecar 脚本位于 `tools/privacy_redactor.py`，切换到 CnOCR/EasyOCR 后端前需要在本机 Python 环境安装对应 OCR 包和 Pillow。
+
+桌面检测优先使用本地信号抽取：前台窗口、当前桌面可见顶层窗口、进程名、浏览器域名、标题类型和安全关键词会先被归纳为 `code_tool`、`pdf_reader`、`search`、`technical_research`、`bilibili`、`entertainment_signal` 等低敏信号；云端文本 AI 默认只接收这些信号，不接收截图、网页正文或聊天内容。Chrome/Edge 扩展会为 B站等页面附加低敏 `page_metadata`（站点、页面类型、分类 hints），不会上传完整 HTML、评论、弹幕、推荐列表或正文。用户在 AI 判断记录里手动保存分类后，会写入 `AppData\Local\FocusGuard\category-rules.json`，后续相似窗口优先命中本地规则。
+
+```powershell
+# 可选：启用 CnOCR 脱敏后端
+python -m pip install pillow cnocr
+
+# 如果 CnOCR 装在 conda/venv 中，指定后端调用的 Python
+$env:FOCUS_GUARD_REDACTOR_PYTHON="E:\Software\miniConda3\envs\cnocr\python.exe"
+
+# 默认使用项目内模型目录，也可手动指定
+$env:FOCUS_GUARD_CNOCR_MODEL_DIR="F:\X_code\Projects\agent\focus-guard\models\doc-densenet_lite_136-gru"
+
+# 验证 CnOCR sidecar 是否可用，会输出 logs\cnocr_redactor_verify.png
+python tools\verify_cnocr_redactor.py
+
+# 可选：启用 EasyOCR 脱敏后端
+python -m pip install pillow easyocr
+```
 
 ### 第六步：配置 AI 供应商
 
@@ -150,7 +172,7 @@ Windows 后台启动后可用 `stop.bat` 停止 `focus-guard-server` 和本地 3
 
 | 二进制 | 作用 | 端口 |
 |--------|------|------|
-| `focus-guard-server` | HTTP 截图分析服务 | 3001 (0.0.0.0) |
+| `focus-guard-server` | HTTP 元信息检测服务 | 3001 (0.0.0.0) |
 | `focus-guard-native-host` | Chrome 原生消息主机 | stdin/stdout |
 
 ## 测试
@@ -209,7 +231,8 @@ git push origin v0.1.0
 
 - Win32 API 截图只在 Windows 上可用
 - 本地 AI 模型需要 GPU 或大内存（4B 模型约需 4GB 显存或 14GB 内存）
-- 扩展的白名单/高风险域名列表在 `shared/policy.js` 和 Rust `lib.rs` 中各有一份，修改时需同步
+- 白名单/高风险域名配置保存在 `AppData\Local\FocusGuard\policy-config.json`；桌面 UI 通过 `/policy-config` 保存，扩展会同步到 `chrome.storage.local.config`
+- 域名匹配逻辑在 `shared/policy.js`、`extension/background.js` 和 Rust `lib.rs` 中各有一份，修改时需同步
 - AI 系统提示必须以 `/no_think` 开头（防止 Qwen3 thinking 模式消耗所有 token）
 - 供应商配置保存在 `AppData\Local\FocusGuard\providers.json`，不要提交 API Key、`.env` 或复制出来的本地配置文件
 - 如果真实 API Key 曾经提交到 GitHub 历史记录，请在对应供应商后台重置 Key；仅删除当前代码里的 Key 不能让历史记录失效

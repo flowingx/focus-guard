@@ -41,10 +41,14 @@ test("tauri config names the desktop assistant", async () => {
 
 test("desktop UI exposes monitored apps, domains, export, and session review controls", async () => {
   const html = await readFile("desktop/index.html", "utf8");
+  const js = await readFile("desktop/app.js", "utf8");
 
   assert.match(html, /monitored-apps/);
   assert.match(html, /high-risk-domains/);
   assert.match(html, /allowlist-rules/);
+  assert.match(js, /loadPolicyConfig/);
+  assert.match(js, /savePolicyConfig/);
+  assert.match(js, /\/policy-config/);
   assert.match(html, /export-csv/);
   assert.match(html, /activity-log/);
   assert.match(html, /image-preview/);
@@ -70,11 +74,14 @@ test("desktop UI exposes optional local AI settings", async () => {
   assert.match(html, /pe-base-url/);
   assert.match(html, /pe-model/);
   assert.match(html, /pe-api-key/);
+  assert.match(html, /api-key-config-card/);
   assert.match(html, /pe-save-btn/);
   assert.match(html, /pe-change-key-btn/);
   assert.match(html, /pe-fetch-models-btn/);
   assert.match(html, /pe-test-btn/);
   assert.match(html, /detect-now/);
+  assert.match(html, /detect-screenshot/);
+  assert.match(html, /手动截图分析/);
   assert.match(html, /scheduled-detect-enabled/);
   assert.match(html, /scheduled-detect-interval/);
   assert.match(html, /scheduled-detect-status/);
@@ -82,6 +89,8 @@ test("desktop UI exposes optional local AI settings", async () => {
   assert.match(js, /ep-20260617210329-lsz4k/);
   assert.match(js, /ark\.cn-beijing\.volces\.com/);
   assert.match(js, /loadApiConfig/);
+  assert.match(js, /renderApiKeyConfigCard/);
+  assert.match(js, /aria-expanded/);
   assert.match(js, /refreshBackendStatus/);
   assert.match(js, /backendFailureCount >= 3/);
   assert.match(js, /AbortSignal\.timeout\(5000\)/);
@@ -120,13 +129,42 @@ test("desktop UI exposes optional local AI settings", async () => {
   assert.match(js, /pointerdown/);
   assert.match(js, /Escape/);
   assert.match(js, /screenshot_base64/);
+  assert.match(js, /privacyRecordLabel/);
+  assert.match(js, /detectPrivacyHint/);
+  assert.match(js, /detectionStageLabel/);
+  assert.match(js, /manual_screenshot/);
+  assert.match(js, /manualScreenshot \? "cnocr"/);
+  assert.match(js, /manualScreenshot \? 600000 : 90000/);
+  assert.match(js, /截图分析仍在处理中/);
+  assert.match(js, /visibleWindowCount/);
+  assert.match(js, /formatWindowSignals/);
+  assert.match(js, /saveCategoryRule/);
+  assert.match(js, /\/category-rules/);
+  assert.match(js, /category-rule-save/);
+  assert.match(js, /\/privacy-config/);
+  assert.match(js, /\/ai-records\/clear-screenshots/);
+  assert.match(html, /privacy-mode/);
+  assert.match(html, /analysis-strategy/);
+  assert.match(html, /ocr-backend/);
+  assert.match(html, /clear-screenshots/);
   assert.match(js, /formatBytes/);
   assert.match(js, /recordAiJudgement/);
+  assert.match(js, /normalizeAiCategory\(result\.category/);
+  assert.match(js, /entertainment/);
+  assert.match(js, /const isDistracting = result\.category === "distracting"/);
   assert.match(js, /recomputeFocusStatsFromRecords/);
   assert.match(js, /focusStats/);
   assert.match(js, /aiSummaries/);
   assert.match(js, /recomputeAiSummaries/);
   assert.match(js, /renderSummaries/);
+  assert.match(js, /summaryCategoryKey/);
+  assert.match(js, /detailRows/);
+  assert.match(js, /今日语义分类用时/);
+  assert.match(html, /自动脱敏截图细分分类/);
+  assert.match(js, /renderDetectionPipeline/);
+  assert.match(js, /renderLiveDetectionPipeline/);
+  assert.match(js, /renderLiveDetectionPipeline\(options\)/);
+  assert.match(js, /redactionPipelineLabel/);
   assert.match(js, /isSameDesktopSnapshot/);
   assert.match(js, /summary-targets/);
   assert.match(js, /summary-segment-productive/);
@@ -137,6 +175,10 @@ test("desktop UI exposes optional local AI settings", async () => {
   assert.match(js, /getNewestFirstAiRecords/);
   assert.match(js, /new Date\(b\.timestamp\)\.getTime\(\) - new Date\(a\.timestamp\)\.getTime\(\)/);
   assert.match(js, /container\.scrollTop = 0/);
+  assert.match(js, /function normalizeStoredAiRecord/);
+  assert.match(js, /function normalizeStringArray/);
+  assert.match(js, /parsed\.aiRecords\.map\(normalizeStoredAiRecord\)/);
+  assert.match(js, /normalizeStoredAiRecord\(rawRecord\)/);
 });
 
 test("desktop server exposes foreground lookup and background scheduled checks", async () => {
@@ -145,6 +187,13 @@ test("desktop server exposes foreground lookup and background scheduled checks",
 
   assert.match(server, /"GET", "\/foreground"/);
   assert.match(server, /"GET", "\/ai-records"/);
+  assert.match(server, /"GET", "\/privacy-config"/);
+  assert.match(server, /"POST", "\/privacy-config"/);
+  assert.match(server, /"GET", "\/policy-config"/);
+  assert.match(server, /"POST", "\/policy-config"/);
+  assert.match(server, /"GET", "\/category-rules"/);
+  assert.match(server, /"POST", "\/category-rules"/);
+  assert.match(server, /"POST", "\/ai-records\/clear-screenshots"/);
   assert.match(server, /"GET", "\/scheduled-detect"/);
   assert.match(server, /"POST", "\/scheduled-detect"/);
   assert.match(server, /409 Conflict/);
@@ -153,6 +202,22 @@ test("desktop server exposes foreground lookup and background scheduled checks",
   assert.match(server, /thread::spawn\(move \|\| handle_connection\(stream\)\)/);
   assert.match(server, /fn route_request/);
   assert.match(server, /screenshot_base64/);
+  assert.match(server, /redaction_status/);
+  assert.match(server, /redaction_error/);
+  assert.match(server, /detection_stage/);
+  assert.match(server, /input_scope/);
+  assert.match(server, /visible_window_count/);
+  assert.match(server, /window_signals/);
+  assert.match(server, /extract_safe_signals/);
+  assert.match(server, /extract_window_signals/);
+  assert.match(server, /match_category_rule/);
+  assert.match(server, /metadata_only/);
+  assert.match(server, /read_visible_windows/);
+  assert.match(server, /prepare_screenshot_for_ai/);
+  assert.match(server, /if !manual_screenshot/);
+  assert.match(server, /privacy\.ocr_backend = "cnocr"/);
+  assert.match(server, /privacy\.privacy_mode = "redacted_cloud"/);
+  assert.match(server, /redaction_unavailable/);
   assert.match(server, /ai-records\.json/);
   assert.match(server, /append_ai_record/);
   assert.match(server, /MAX_AI_RECORDS: usize = 1000/);
@@ -166,9 +231,13 @@ test("desktop server exposes foreground lookup and background scheduled checks",
   assert.match(server, /read_foreground_window/);
   assert.match(server, /skip_browser/);
   assert.match(server, /fn is_browser_process/);
-  assert.match(server, /fn classify_browser_title/);
+  assert.match(await readFile("extension/background.js", "utf8"), /browser_context/);
+  assert.match(await readFile("extension/background.js", "utf8"), /page_metadata/);
+  assert.match(await readFile("extension/background.js", "utf8"), /getPageMetadata/);
+  assert.doesNotMatch(await readFile("extension/background.js", "utf8"), /document\.body\.innerText|outerHTML/);
   assert.match(server, /哔哩哔哩/);
-  assert.match(server, /browser-title/);
+  assert.match(server, /classify_window_summaries/);
+  assert.doesNotMatch(server, /browser-title/);
   assert.match(server, /中文简短解释/);
   assert.match(server, /llm_request_endpoint/);
   assert.match(server, /llm_models_endpoint/);
@@ -180,6 +249,7 @@ test("desktop server exposes foreground lookup and background scheduled checks",
 test("extension interference approves with a five minute session and does not auto-close on rejection", async () => {
   const js = await readFile("extension/interference.js", "utf8");
   const background = await readFile("extension/background.js", "utf8");
+  const desktop = await readFile("desktop/app.js", "utf8");
 
   assert.match(js, /ALLOW_MINUTES = 5/);
   assert.match(js, /type: "submit_intent"/);
@@ -188,6 +258,8 @@ test("extension interference approves with a five minute session and does not au
   assert.doesNotMatch(js, /setTimeout\(\(\) => \{\s*chrome\.runtime\.sendMessage\(\{ type: "close_current_tab" \}\)/);
   assert.match(background, /grantedMinutes/);
   assert.doesNotMatch(background, /10 分钟到了/);
+  assert.doesNotMatch(desktop, /pendingInterference/);
+  assert.doesNotMatch(background, /pendingInterference/);
 });
 
 test("windows start and stop scripts support background service control", async () => {
@@ -197,6 +269,9 @@ test("windows start and stop scripts support background service control", async 
   assert.match(start, /--worker/);
   assert.match(start, /WindowStyle Hidden/);
   assert.match(start, /START_LOG=.*start\.log/);
+  assert.match(start, /FOCUS_GUARD_REDACTOR_PYTHON/);
+  assert.match(start, /envs\\cnocr\\python\.exe/);
+  assert.match(start, /FOCUS_GUARD_CNOCR_MODEL_DIR/);
   assert.doesNotMatch(start, /pause >nul/);
   assert.match(stop, /focus-guard-server/);
   assert.match(stop, /Get-NetTCPConnection/);

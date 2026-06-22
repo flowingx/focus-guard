@@ -15,7 +15,7 @@ export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh" && source "$HOME/.cargo/env"
 
 # One-click start (builds + runs everything)
 ./start.sh          # Linux/WSL
-start.bat           # Windows, incremental build + hidden background start, opens browser, then exits
+start.bat           # Windows, first calls stop.bat, then incremental build + hidden background start, opens browser, then exits
 stop.bat            # Windows, stops focus-guard-server and local UI ports
 
 # Run all tests
@@ -39,7 +39,10 @@ python3 -m http.server 3000 --bind 0.0.0.0 --directory /home/flow/focus-guard/de
 - `desktop/` — Desktop UI (plain HTML/JS/CSS, served as static files)
 - `tests/` — JS tests using `node:test` + `node:assert/strict`. Run via `node tests/run.js`.
 - Background scheduled desktop checks live in `focus-guard-server`, not in the browser page. The UI controls `/scheduled-detect`; the server persists state in `AppData\Local\FocusGuard\scheduled-detect.json`.
-- `focus-guard-server` handles each HTTP connection on its own thread so long AI `/detect` calls do not block `/health`. AI judgement records are persisted in `AppData\Local\FocusGuard\ai-records.json`; the server keeps the latest 1000 records for summaries while the desktop UI renders the latest 20 records and estimates daily/hourly productive, distracting, idle/no-change, and window/title minutes from the history.
+- `focus-guard-server` handles each HTTP connection on its own thread so long AI `/detect` calls do not block `/health`. AI judgement records are persisted in `AppData\Local\FocusGuard\ai-records.json`; the server keeps the latest 1000 records for summaries while the desktop UI renders the latest 20 records and estimates daily/hourly productive, distracting, idle/no-change, and window/title minutes from the history. Original screenshots are not persisted by default.
+- Policy settings for focus mode, high-risk domains, and allowlist rules live in `AppData\Local\FocusGuard\policy-config.json`. The desktop UI reads/writes `/policy-config`; the browser extension syncs this endpoint with `chrome.storage.local.config` so rules added from the Web UI and unknown-site prompt stay consistent.
+- Privacy settings live in `AppData\Local\FocusGuard\privacy-config.json`. Cloud providers default to redacted/metadata-only analysis: if the optional OCR redactor is unavailable, `/detect` sends process/window title only. The optional local OCR redactor entrypoint is `tools/privacy_redactor.py` and expects CnOCR or EasyOCR plus Pillow when enabled. Manual screenshot analysis forces CnOCR redaction, stores only the redacted preview image in `ai-records.json`, and never persists the original screenshot. `FOCUS_GUARD_REDACTOR_PYTHON` can point to the conda/venv Python that has CnOCR installed, and `FOCUS_GUARD_CNOCR_MODEL_DIR` can point to `models\doc-densenet_lite_136-gru`. Run `python tools\verify_cnocr_redactor.py` to smoke-test the local CnOCR sidecar.
+- Desktop detection is layered: local safe-signal extraction first, metadata-only cloud text AI second, and redacted/local screenshot only as a fallback. Cloud text AI should receive safe signals such as `code_tool`, `search`, `technical_research`, `bilibili`, and title classes rather than raw private text.
 
 ## Binaries
 
@@ -74,7 +77,7 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-server --releas
 cargo run --manifest-path src-tauri/Cargo.toml --bin focus-guard-native-host --release
 ```
 
-For normal Windows use, prefer `start.bat`. It runs an incremental release build, relaunches itself hidden, starts `focus-guard-server` and the static UI in the background, opens `http://localhost:3000`, writes logs under `logs\`, and exits. Use `stop.bat` to stop the background server/UI processes. For script debugging, run `start.bat --worker` to execute the worker path directly.
+For normal Windows use, prefer `start.bat`. It runs an incremental release build, relaunches itself hidden, starts `focus-guard-server` and the static UI in the background, opens `http://localhost:3000`, writes logs under `logs\`, and exits. If `FOCUS_GUARD_REDACTOR_PYTHON` is unset and `E:\Software\miniConda3\envs\cnocr\python.exe` exists, it uses that dedicated CnOCR env for manual screenshot redaction. Use `stop.bat` to stop the background server/UI processes. For script debugging, run `start.bat --worker` to execute the worker path directly.
 
 ### 3. Load Chrome extension
 - `chrome://extensions` → Developer mode → Load unpacked → select `extension/` folder
@@ -133,12 +136,14 @@ netsh advfirewall firewall add rule name=FocusGuard-3001 dir=in action=allow pro
 
 ## Critical: Policy Logic Duplication
 
-`shared/policy.js` and `src-tauri/src/lib.rs` both implement domain matching (`matches_host_rule`), host normalization (`strip_www`), and allowlist evaluation. Changes to matching behavior must be made in **both** files to stay consistent.
+`shared/policy.js`, `extension/background.js`, and `src-tauri/src/lib.rs` all implement domain matching (`matches_host_rule` / `matchesHostRule`), host normalization (`strip_www` / `stripWww`), and allowlist evaluation. Changes to matching behavior must be made in **all three** files to stay consistent.
 
 ## Rust Notes
 
 - CI runs `cargo clippy -- -D warnings` — fix all warnings before pushing.
-- `read_foreground_window()` and `capture_screen_thumbnail_base64()` return `None` on non-Windows. Uses `#[cfg(windows)]` / `#[cfg(not(windows))]` for platform-specific paths.
+- `read_foreground_window()` returns `None` on non-Windows; `read_visible_windows()` returns an empty list on non-Windows; `capture_screen_thumbnail_base64()` returns `None` on non-Windows. Uses `#[cfg(windows)]` / `#[cfg(not(windows))]` for platform-specific paths.
+- Default `/detect` uses foreground/visible-window metadata and does not capture screenshots. Screenshot capture is reserved for explicit `manual_screenshot:true` requests or local visual debugging.
+- Browser extension AI detection may send low-sensitivity `page_metadata` such as site, page type, title class, and classification hints. Do not send full HTML, body text, comments, danmaku, recommendations, chat content, or account data.
 - Screenshot uses `SetProcessDPIAware()` for full resolution capture on high-DPI displays.
 - Server binds to `0.0.0.0:3001` (not `127.0.0.1`) so WSL can reach it.
 - `reqwest` with `blocking` feature used for outgoing HTTPS API calls.
@@ -149,7 +154,7 @@ netsh advfirewall firewall add rule name=FocusGuard-3001 dir=in action=allow pro
 - Provider configs saved in `AppData\Local\FocusGuard\providers.json`.
 - System prompt **must** start with `/no_think` for Qwen3 models.
 - AI config is set in three places: `src-tauri/src/lib.rs` (`LocalAiConfig::default()`), `desktop/app.js` (`DEFAULT_LOCAL_AI`), and `src-tauri/src/ai_analyzer.rs`.
-- Screenshot analysis prompt must instruct model to analyze ENTIRE screen, not just foreground window.
+- Screenshot analysis prompt must instruct model to analyze ENTIRE screen, not just foreground window, but default cloud analysis should remain metadata-only.
 
 ## Testing
 

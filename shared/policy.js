@@ -432,6 +432,11 @@ function matchesHostRule(host, rule) {
     return host.split(".").includes(token);
   }
 
+  if (cleanRule.startsWith("*") && cleanRule.endsWith("*")) {
+    const token = cleanRule.slice(1, -1).replace(/^\.+|\.+$/g, "");
+    return Boolean(token) && host.split(".").includes(token);
+  }
+
   if (!cleanRule.includes(".")) {
     return host.split(".").includes(cleanRule);
   }

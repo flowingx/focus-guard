@@ -11,18 +11,14 @@ document.getElementById("continue-study").addEventListener("click", async () => 
     type: "extend_session",
     target,
     reason,
-    minutes: 10,
+    minutes: 5,
     saveCandidate: false,
     category: "study",
     expiryAction: "check_in",
     originalUrl,
   });
 
-  if (originalUrl) {
-    location.href = originalUrl;
-  } else {
-    history.back();
-  }
+  await chrome.runtime.sendMessage({ type: "close_current_tab" });
 });
 
 document.getElementById("finish-session").addEventListener("click", async () => {

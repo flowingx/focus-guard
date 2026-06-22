@@ -51,6 +51,7 @@ test("extension exposes an in-browser expiry page for forceful check-ins", async
   const manifest = JSON.parse(await readFile("extension/manifest.json", "utf8"));
   const html = await readFile("extension/expired.html", "utf8");
   const js = await readFile("extension/expired.js", "utf8");
+  const background = await readFile("extension/background.js", "utf8");
 
   assert.equal(
     manifest.web_accessible_resources[0].resources.includes("expired.html"),
@@ -59,7 +60,15 @@ test("extension exposes an in-browser expiry page for forceful check-ins", async
   assert.match(html, /continue-study/);
   assert.match(html, /finish-session/);
   assert.match(js, /extend_session/);
+  assert.match(js, /minutes: 5/);
+  assert.match(html, /再给 5 分钟/);
+  assert.doesNotMatch(html, /再给 10 分钟/);
   assert.match(js, /close_current_tab/);
+  assert.doesNotMatch(js, /location\.href = originalUrl/);
+  assert.match(background, /await safeTabCreate\(\{ url: checkInUrl, active: true \}\)/);
+  assert.doesNotMatch(background, /safeTabUpdate\(session\.tabId, \{ url: checkInUrl/);
+  assert.match(background, /isAllowlistedTarget/);
+  assert.match(background, /delete sessions\[target\]/);
 });
 
 test("extension exposes an unknown-site review page", async () => {
@@ -158,6 +167,25 @@ test("extension reviews unknown sites before adding them to high-risk or allowli
   assert.match(background, /temporaryAllows/);
   assert.match(background, /highRiskDomains/);
   assert.match(background, /allowlistRules/);
+});
+
+test("extension syncs policy rules with the desktop server", async () => {
+  const background = await readFile("extension/background.js", "utf8");
+
+  assert.match(background, /POLICY_CONFIG_URL/);
+  assert.match(background, /\/policy-config/);
+  assert.match(background, /syncPolicyConfigFromServer/);
+  assert.match(background, /pushPolicyConfigToServer/);
+  assert.match(background, /await syncPolicyConfigFromServer\(\)/);
+});
+
+test("extension treats entertainment AI results as distracting", async () => {
+  const background = await readFile("extension/background.js", "utf8");
+
+  assert.match(background, /function normalizeAiCategory/);
+  assert.match(background, /entertainment/);
+  assert.match(background, /normalizeAiCategory\(result\.category/);
+  assert.match(background, /const isDistracting = category === "distracting"/);
 });
 
 test("extension swallows missing native messaging host errors", async () => {

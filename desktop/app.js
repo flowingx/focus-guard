@@ -34,9 +34,23 @@ const DEFAULT_LOCAL_AI = {
   apiKey: "",
   apiBaseUrl: "https://api.openai.com",
   apiModel: "",
+  hasApiKey: false,
   sampleIntervalSeconds: 30,
   confidenceThreshold: 0.75,
 };
+
+const SEMANTIC_CATEGORIES = [
+  "写代码",
+  "学概率统计",
+  "学编译原理",
+  "B站网课",
+  "B站娱乐视频",
+  "回消息",
+  "查资料",
+  "项目管理",
+  "其他",
+  "待归类",
+];
 
 const DEFAULT_SCHEDULED_DETECT = {
   enabled: false,
@@ -46,6 +60,15 @@ const DEFAULT_SCHEDULED_DETECT = {
   lastCompletedAt: 0,
   lastSeenCompletedAt: 0,
   lastStatus: "idle",
+};
+
+const DEFAULT_PRIVACY = {
+  privacyMode: "redacted_cloud",
+  analysisStrategy: "balanced",
+  ocrBackend: "none",
+  screenshotRetention: "none",
+  riskyWindowPolicy: "title_only",
+  autoSemanticVisual: true,
 };
 
 const MAX_AI_DISPLAY_RECORDS = 20;
@@ -58,6 +81,7 @@ let serverHealth = "checking";
 let backendFailureCount = 0;
 let detectInFlight = false;
 let currentIntervention = null;
+let apiKeyEditOpen = false;
 const aiRecordImages = new Map();
 const imagePreview = {
   open: false,
@@ -125,6 +149,8 @@ const state = loadState();
 applyTheme(state.theme ?? "system");
 render();
 loadApiConfig();
+loadPolicyConfig();
+loadPrivacyConfig();
 loadAiRecords();
 loadScheduledDetectConfig();
 refreshBackendStatus();
@@ -142,7 +168,7 @@ function applyTheme(theme) {
   const btn = document.getElementById("theme-toggle");
   if (btn) {
     const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    btn.textContent = isDark ? "☀️" : "🌙";
+    btn.textContent = isDark ? "☀" : "☾";
   }
 }
 
@@ -157,12 +183,14 @@ document.getElementById("theme-toggle").addEventListener("click", () => {
 document.getElementById("toggle-focus").addEventListener("click", () => {
   state.focusMode = !state.focusMode;
   saveState();
+  savePolicyConfig();
   render();
 });
 
 document.getElementById("high-risk-domains").addEventListener("change", (event) => {
   state.highRiskDomains = splitLines(event.target.value);
   saveState();
+  savePolicyConfig();
 });
 
 document.getElementById("monitored-apps").addEventListener("change", (event) => {
@@ -173,6 +201,7 @@ document.getElementById("monitored-apps").addEventListener("change", (event) => 
 document.getElementById("allowlist-rules").addEventListener("change", (event) => {
   state.allowlistRules = splitLines(event.target.value);
   saveState();
+  savePolicyConfig();
 });
 
 document.getElementById("local-ai-enabled").addEventListener("change", (event) => {
@@ -199,6 +228,10 @@ document.getElementById("scheduled-detect-interval").addEventListener("change", 
   await saveScheduledDetectConfig();
 });
 
+for (const id of ["privacy-mode", "analysis-strategy", "ocr-backend", "screenshot-retention", "risky-window-policy", "auto-semantic-visual"]) {
+  document.getElementById(id).addEventListener("change", savePrivacyConfig);
+}
+
 async function loadApiConfig() {
   try {
     const resp = await fetch(`${SERVER}/config`);
@@ -207,13 +240,160 @@ async function loadApiConfig() {
     state.localAi.endpoint = data.endpoint || state.localAi.endpoint;
     state.localAi.model = data.model || state.localAi.model;
     state.localAi.mode = data.mode || state.localAi.mode;
+    state.localAi.hasApiKey = Boolean(data.hasApiKey);
     document.getElementById("pe-base-url").value = state.localAi.endpoint;
     document.getElementById("pe-model").value = state.localAi.model;
     document.getElementById("pe-api-key").value = data.hasApiKey ? MASKED_KEY : "";
+    renderApiKeyConfigCard({ open: !data.hasApiKey });
     saveState();
     renderLocalAiStatus();
   } catch {
+    renderApiKeyConfigCard({ open: true });
     renderLocalAiStatus();
+  }
+}
+
+async function loadPolicyConfig() {
+  try {
+    const resp = await fetch(`${SERVER}/policy-config`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    state.focusMode = data.focusMode !== false;
+    state.highRiskDomains = normalizeStringArray(data.highRiskDomains).length
+      ? normalizeStringArray(data.highRiskDomains)
+      : state.highRiskDomains;
+    state.allowlistRules = normalizeStringArray(data.allowlistRules).length
+      ? normalizeStringArray(data.allowlistRules)
+      : state.allowlistRules;
+    saveState();
+    render();
+  } catch {
+    // Keep local edits usable when the desktop server is not running.
+  }
+}
+
+async function savePolicyConfig() {
+  try {
+    await fetch(`${SERVER}/policy-config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        focusMode: state.focusMode,
+        highRiskDomains: state.highRiskDomains,
+        allowlistRules: state.allowlistRules,
+        defaultMinutes: 20,
+      }),
+    });
+  } catch {
+    // Extension sync will resume after the backend is available.
+  }
+}
+
+async function loadPrivacyConfig() {
+  try {
+    const resp = await fetch(`${SERVER}/privacy-config`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    applyPrivacyConfig(data);
+  } catch {
+    applyPrivacyConfig(state.privacy || DEFAULT_PRIVACY);
+  }
+}
+
+function applyPrivacyConfig(data) {
+  state.privacy = {
+    ...DEFAULT_PRIVACY,
+    privacyMode: data.privacy_mode || data.privacyMode || DEFAULT_PRIVACY.privacyMode,
+    analysisStrategy:
+      data.analysis_strategy || data.analysisStrategy || DEFAULT_PRIVACY.analysisStrategy,
+    ocrBackend: data.ocr_backend || data.ocrBackend || DEFAULT_PRIVACY.ocrBackend,
+    screenshotRetention:
+      data.screenshot_retention || data.screenshotRetention || DEFAULT_PRIVACY.screenshotRetention,
+    riskyWindowPolicy:
+      data.risky_window_policy || data.riskyWindowPolicy || DEFAULT_PRIVACY.riskyWindowPolicy,
+    autoSemanticVisual:
+      Boolean(data.auto_semantic_visual ?? data.autoSemanticVisual ?? DEFAULT_PRIVACY.autoSemanticVisual),
+  };
+  document.getElementById("privacy-mode").value = state.privacy.privacyMode;
+  document.getElementById("analysis-strategy").value = state.privacy.analysisStrategy;
+  document.getElementById("ocr-backend").value = state.privacy.ocrBackend;
+  document.getElementById("screenshot-retention").value = state.privacy.screenshotRetention;
+  document.getElementById("risky-window-policy").value = state.privacy.riskyWindowPolicy;
+  document.getElementById("auto-semantic-visual").checked = state.privacy.autoSemanticVisual;
+  renderPrivacyStatus();
+  saveState();
+}
+
+async function savePrivacyConfig() {
+  state.privacy = {
+    privacyMode: document.getElementById("privacy-mode").value,
+    analysisStrategy: document.getElementById("analysis-strategy").value,
+    ocrBackend: document.getElementById("ocr-backend").value,
+    screenshotRetention: document.getElementById("screenshot-retention").value,
+    riskyWindowPolicy: document.getElementById("risky-window-policy").value,
+    autoSemanticVisual: document.getElementById("auto-semantic-visual").checked,
+  };
+  renderPrivacyStatus();
+  saveState();
+  try {
+    const resp = await fetch(`${SERVER}/privacy-config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        privacy_mode: state.privacy.privacyMode,
+        analysis_strategy: state.privacy.analysisStrategy,
+        ocr_backend: state.privacy.ocrBackend,
+        screenshot_retention: state.privacy.screenshotRetention,
+        risky_window_policy: state.privacy.riskyWindowPolicy,
+        auto_semantic_visual: state.privacy.autoSemanticVisual,
+      }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    applyPrivacyConfig(await resp.json());
+  } catch (error) {
+    showDetectMessage("warn", "隐私配置未保存", error.message || "无法连接后端服务");
+  }
+}
+
+function renderPrivacyStatus() {
+  const status = document.getElementById("privacy-status");
+  if (!status || !state.privacy) return;
+  if (state.privacy.privacyMode === "local_only") {
+    status.textContent = "云端不收截图";
+    status.className = "pill ok-pill";
+    return;
+  }
+  if (state.privacy.ocrBackend === "none") {
+    status.textContent = "无 OCR 时仅文本判断";
+    status.className = "pill muted-pill";
+    return;
+  }
+  status.textContent = state.privacy.analysisStrategy === "private_first" ? "仅文本元信息" : "云端仅收脱敏图";
+  status.className = "pill ok-pill";
+}
+
+function renderApiKeyConfigCard(options = {}) {
+  const card = document.getElementById("api-key-config-card");
+  const keyInput = document.getElementById("pe-api-key");
+  const toggle = document.getElementById("pe-change-key-btn");
+  if (!card || !keyInput || !toggle) return;
+
+  apiKeyEditOpen = Boolean(options.open);
+  card.classList.toggle("hidden", !apiKeyEditOpen);
+  toggle.textContent = apiKeyEditOpen ? "取消更换 Key" : "更换 Key";
+  toggle.setAttribute("aria-expanded", String(apiKeyEditOpen));
+
+  if (apiKeyEditOpen) {
+    if (options.clearWhenOpen || keyInput.value === MASKED_KEY) {
+      keyInput.value = "";
+    }
+    keyInput.placeholder = "输入新的 API Key";
+    keyInput.focus();
+    return;
+  }
+
+  if (state.localAi.hasApiKey) {
+    keyInput.value = MASKED_KEY;
   }
 }
 
@@ -222,10 +402,7 @@ document.getElementById("pe-save-btn").addEventListener("click", async () => {
 });
 
 document.getElementById("pe-change-key-btn").addEventListener("click", () => {
-  const keyInput = document.getElementById("pe-api-key");
-  keyInput.value = "";
-  keyInput.placeholder = "输入新的 API Key";
-  keyInput.focus();
+  renderApiKeyConfigCard({ open: !apiKeyEditOpen, clearWhenOpen: true });
 });
 
 document.getElementById("pe-fetch-models-btn").addEventListener("click", fetchModels);
@@ -266,9 +443,13 @@ async function saveApiConfig(options = {}) {
     state.localAi.model = model;
     state.localAi.mode = payload.mode;
     state.localAi.enabled = true;
+    state.localAi.hasApiKey = Boolean(apiKey && apiKey !== MASKED_KEY) || Boolean(state.localAi.hasApiKey);
     document.getElementById("local-ai-enabled").checked = true;
     if (apiKey && apiKey !== MASKED_KEY) {
       keyInput.value = MASKED_KEY;
+    }
+    if (state.localAi.hasApiKey) {
+      renderApiKeyConfigCard({ open: false });
     }
     saveState();
     await refreshBackendStatus();
@@ -348,6 +529,10 @@ document.getElementById("detect-now").addEventListener("click", async () => {
   await detectProcrastination();
 });
 
+document.getElementById("detect-screenshot").addEventListener("click", async () => {
+  await detectProcrastination({ manualScreenshot: true });
+});
+
 function setupInlineInput(config) {
   const { addBtnId, inputRowId, inputId, confirmId, cancelId, placeholder, onAdd } = config;
   const addBtn = document.getElementById(addBtnId);
@@ -392,6 +577,7 @@ setupInlineInput({
   onAdd: (value) => {
     state.highRiskDomains = unique([...state.highRiskDomains, value]);
     saveState();
+    savePolicyConfig();
     render();
   },
 });
@@ -418,6 +604,7 @@ setupInlineInput({
   onAdd: (value) => {
     state.allowlistRules = unique([...state.allowlistRules, value]);
     saveState();
+    savePolicyConfig();
     render();
   },
 });
@@ -434,6 +621,19 @@ document.getElementById("export-json").addEventListener("click", () => {
   );
 });
 
+document.getElementById("clear-screenshots").addEventListener("click", async () => {
+  try {
+    const resp = await fetch(`${SERVER}/ai-records/clear-screenshots`, { method: "POST" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    aiRecordImages.clear();
+    await loadAiRecords();
+    showDetectMessage("ok", "截图已清理", `已从历史记录中清理 ${data.cleared || 0} 张截图。`);
+  } catch (error) {
+    showDetectMessage("warn", "清理失败", error.message || "无法连接后端服务");
+  }
+});
+
 setupImagePreview();
 setupInterventionModal();
 
@@ -445,9 +645,16 @@ function render() {
   document.getElementById("monitored-apps").value = state.monitoredApps.join("\n");
   document.getElementById("allowlist-rules").value = state.allowlistRules.join("\n");
   document.getElementById("local-ai-enabled").checked = state.localAi.enabled;
+  document.getElementById("privacy-mode").value = state.privacy.privacyMode;
+  document.getElementById("analysis-strategy").value = state.privacy.analysisStrategy;
+  document.getElementById("ocr-backend").value = state.privacy.ocrBackend;
+  document.getElementById("screenshot-retention").value = state.privacy.screenshotRetention;
+  document.getElementById("risky-window-policy").value = state.privacy.riskyWindowPolicy;
   document.getElementById("scheduled-detect-enabled").checked = state.scheduledDetect.enabled;
   document.getElementById("scheduled-detect-interval").value = state.scheduledDetect.intervalMinutes;
   renderLocalAiStatus();
+  renderApiKeyConfigCard({ open: !state.localAi.hasApiKey });
+  renderPrivacyStatus();
   renderScheduledDetectStatus();
   renderActivity();
   renderSummaries();
@@ -575,11 +782,28 @@ function applyServerAiRecords(records) {
       error: record.error || "",
       hasScreenshot: Boolean(record.has_screenshot),
       screenshotBytes: Number(record.screenshot_bytes || 0),
+      privacyMode: record.privacy_mode || "",
+      redactionStatus: record.redaction_status || "",
+      redactionError: record.redaction_error || "",
+      screenshotRedacted: Boolean(record.screenshot_redacted),
+      screenshotPersisted: Boolean(record.screenshot_persisted),
+      semanticCategory: record.semantic_category || "",
+      privacyRisk: record.privacy_risk || "",
+      detectionStage: record.detection_stage || "",
+      inputScope: record.input_scope || "",
+      browserDomain: record.browser_domain || "",
+      browserTitle: record.browser_title || "",
+      visibleWindowCount: Number(record.visible_window_count || 0),
+      windowSignals: normalizeStringArray(record.window_signals),
+      windowSummaries: normalizeWindowSummaries(record.window_summaries),
+      pageSite: record.page_site || "",
+      pageUrlKind: record.page_url_kind || "",
+      pageHints: normalizeStringArray(record.page_hints),
     };
     if (record.screenshot_base64) {
       aiRecordImages.set(mapped.id, record.screenshot_base64);
     }
-    return mapped;
+    return normalizeStoredAiRecord(mapped);
   });
   recomputeFocusStatsFromRecords();
   recomputeAiSummaries();
@@ -685,7 +909,7 @@ function recordAiJudgement(result, options = {}) {
   if (result.screenshot_base64) {
     aiRecordImages.set(id, result.screenshot_base64);
   }
-  state.aiRecords.push({
+  state.aiRecords.push(normalizeStoredAiRecord({
     id,
     timestamp,
     source: options.source || "manual",
@@ -697,7 +921,24 @@ function recordAiJudgement(result, options = {}) {
     error: result.error || "",
     hasScreenshot: Boolean(result.has_screenshot),
     screenshotBytes: Number(result.screenshot_bytes || 0),
-  });
+    privacyMode: result.privacy_mode || "",
+    redactionStatus: result.redaction_status || "",
+    redactionError: result.redaction_error || "",
+    screenshotRedacted: Boolean(result.screenshot_redacted),
+    screenshotPersisted: Boolean(result.screenshot_persisted),
+    semanticCategory: result.semantic_category || "",
+    privacyRisk: result.privacy_risk || "",
+    detectionStage: result.detection_stage || "",
+    inputScope: result.input_scope || "",
+    browserDomain: result.browser_domain || "",
+    browserTitle: result.browser_title || "",
+    visibleWindowCount: Number(result.visible_window_count || 0),
+    windowSignals: normalizeStringArray(result.window_signals),
+    windowSummaries: normalizeWindowSummaries(result.window_summaries),
+    pageSite: result.page_site || "",
+    pageUrlKind: result.page_url_kind || "",
+    pageHints: normalizeStringArray(result.page_hints),
+  }));
   pruneAiRecordImages();
   recomputeFocusStatsFromRecords();
   recomputeAiSummaries();
@@ -727,6 +968,61 @@ function normalizeAiCategory(category) {
   return value;
 }
 
+function normalizeDetectResult(result) {
+  if (!result || typeof result !== "object") return result;
+  result.category = normalizeAiCategory(result.category || "unknown");
+  return result;
+}
+
+function normalizeStringArray(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  if (typeof value === "string") return value.split(/\s+/).map((item) => item.trim()).filter(Boolean);
+  return [];
+}
+
+function normalizeWindowSummaries(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => ({
+    process_name: item?.process_name || item?.processName || "",
+    title_class: item?.title_class || item?.titleClass || "",
+    signals: normalizeStringArray(item?.signals),
+    is_foreground: Boolean(item?.is_foreground ?? item?.isForeground),
+  }));
+}
+
+function normalizeStoredAiRecord(record) {
+  return {
+    id: record?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: record?.timestamp || new Date().toISOString(),
+    source: record?.source || "manual",
+    category: normalizeAiCategory(record?.category || "unknown"),
+    confidence: Number(record?.confidence || 0),
+    processName: record?.processName || record?.process_name || "desktop",
+    windowTitle: record?.windowTitle || record?.window_title || "",
+    reason: record?.reason || record?.error || "AI 未返回原因",
+    error: record?.error || "",
+    hasScreenshot: Boolean(record?.hasScreenshot ?? record?.has_screenshot),
+    screenshotBytes: Number(record?.screenshotBytes ?? record?.screenshot_bytes ?? 0),
+    privacyMode: record?.privacyMode || record?.privacy_mode || "",
+    redactionStatus: record?.redactionStatus || record?.redaction_status || "",
+    redactionError: record?.redactionError || record?.redaction_error || "",
+    screenshotRedacted: Boolean(record?.screenshotRedacted ?? record?.screenshot_redacted),
+    screenshotPersisted: Boolean(record?.screenshotPersisted ?? record?.screenshot_persisted),
+    semanticCategory: record?.semanticCategory || record?.semantic_category || "",
+    privacyRisk: record?.privacyRisk || record?.privacy_risk || "",
+    detectionStage: record?.detectionStage || record?.detection_stage || "",
+    inputScope: record?.inputScope || record?.input_scope || "",
+    browserDomain: record?.browserDomain || record?.browser_domain || "",
+    browserTitle: record?.browserTitle || record?.browser_title || "",
+    visibleWindowCount: Number(record?.visibleWindowCount ?? record?.visible_window_count ?? 0),
+    windowSignals: normalizeStringArray(record?.windowSignals ?? record?.window_signals),
+    windowSummaries: normalizeWindowSummaries(record?.windowSummaries ?? record?.window_summaries),
+    pageSite: record?.pageSite || record?.page_site || "",
+    pageUrlKind: record?.pageUrlKind || record?.page_url_kind || "",
+    pageHints: normalizeStringArray(record?.pageHints ?? record?.page_hints),
+  };
+}
+
 function recomputeFocusStatsFromRecords() {
   const minutesPerRecord = clampIntervalMinutes(state.scheduledDetect.intervalMinutes || 1);
   state.focusStats.productiveMinutes = 0;
@@ -743,9 +1039,12 @@ function recomputeFocusStatsFromRecords() {
 function recomputeAiSummaries() {
   const hourly = new Map();
   const daily = new Map();
-  const targets = new Map();
-  const hourlyTargets = new Map();
-  const dailyTargets = new Map();
+  const categories = new Map();
+  const categoryDetails = new Map();
+  const hourlyCategories = new Map();
+  const hourlyDetails = new Map();
+  const dailyCategories = new Map();
+  const dailyDetails = new Map();
   const records = [...state.aiRecords].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
@@ -770,28 +1069,32 @@ function recomputeAiSummaries() {
     addSummaryMinutes(hourly, hourKey, status, minutes);
     addSummaryMinutes(daily, dayKey, status, minutes);
 
-    if (record.windowTitle && status !== "idle") {
-      const key = `${record.processName || "unknown"} — ${record.windowTitle}`;
-      targets.set(key, (targets.get(key) || 0) + minutes);
-      addTargetMinutes(hourlyTargets, hourKey, key, minutes);
-      addTargetMinutes(dailyTargets, dayKey, key, minutes);
+    if (status !== "idle") {
+      const categoryKey = summaryCategoryKey(record);
+      const detailKey = summaryDetailKey(record);
+      addTargetMinutes(categories, "__all__", categoryKey, minutes);
+      addTargetMinutes(hourlyCategories, hourKey, categoryKey, minutes);
+      addTargetMinutes(dailyCategories, dayKey, categoryKey, minutes);
+      addDetailMinutes(categoryDetails, categoryKey, detailKey, minutes);
+      addPeriodDetailMinutes(hourlyDetails, hourKey, categoryKey, detailKey, minutes);
+      addPeriodDetailMinutes(dailyDetails, dayKey, categoryKey, detailKey, minutes);
     }
   }
 
   state.aiSummaries.hourly = [...hourly.entries()].map(([label, value]) => ({
     label,
     ...value,
-    targets: targetRows(hourlyTargets.get(label)),
+    targets: targetRows(hourlyCategories.get(label)),
+    detailRows: detailRows(hourlyDetails.get(label)),
   }));
   state.aiSummaries.daily = [...daily.entries()].map(([label, value]) => ({
     label,
     ...value,
-    targets: targetRows(dailyTargets.get(label)),
+    targets: targetRows(dailyCategories.get(label)),
+    detailRows: detailRows(dailyDetails.get(label)),
   }));
-  state.aiSummaries.targets = [...targets.entries()]
-    .map(([label, minutes]) => ({ label, minutes }))
-    .sort((a, b) => b.minutes - a.minutes)
-    .slice(0, 8);
+  state.aiSummaries.targets = targetRows(categories.get("__all__")).slice(0, 8);
+  state.aiSummaries.detailRows = detailRows(categoryDetails);
 }
 
 function classifySummaryRecord(record, next) {
@@ -829,11 +1132,61 @@ function addTargetMinutes(periodMap, periodKey, targetKey, minutes) {
   periodMap.set(periodKey, targets);
 }
 
+function addDetailMinutes(detailMap, categoryKey, detailKey, minutes) {
+  const details = detailMap.get(categoryKey) || new Map();
+  details.set(detailKey, (details.get(detailKey) || 0) + minutes);
+  detailMap.set(categoryKey, details);
+}
+
+function addPeriodDetailMinutes(periodMap, periodKey, categoryKey, detailKey, minutes) {
+  const period = periodMap.get(periodKey) || new Map();
+  addDetailMinutes(period, categoryKey, detailKey, minutes);
+  periodMap.set(periodKey, period);
+}
+
+function summaryCategoryKey(record) {
+  const semantic = String(record.semanticCategory || "").trim();
+  if (semantic && semantic !== "unknown") return semantic;
+  if (isFocusGuardWindow(record)) return "项目管理";
+  if (record.category === "distracting") {
+    if (isBilibiliRecord(record)) return "B站娱乐视频";
+    if (record.windowSignals.includes("message_app")) return "回消息";
+    return "其他";
+  }
+  return "待归类";
+}
+
+function summaryDetailKey(record) {
+  const process = record.processName || "unknown";
+  const title = record.windowTitle || "unknown";
+  return `${process} — ${title}`;
+}
+
+function isFocusGuardWindow(record) {
+  return /focus guard/i.test(record.windowTitle || "") || /focus-guard/i.test(record.windowTitle || "");
+}
+
+function isBilibiliRecord(record) {
+  return (
+    record.pageSite === "bilibili" ||
+    /bilibili|哔哩哔哩/i.test(record.windowTitle || "") ||
+    (record.windowSignals || []).includes("bilibili")
+  );
+}
+
 function targetRows(map) {
   if (!map) return [];
   return [...map.entries()]
     .map(([label, minutes]) => ({ label, minutes }))
     .sort((a, b) => b.minutes - a.minutes);
+}
+
+function detailRows(map) {
+  if (!map) return [];
+  return [...map.entries()].map(([label, details]) => ({
+    label,
+    details: targetRows(details),
+  }));
 }
 
 function pad2(value) {
@@ -890,7 +1243,11 @@ function renderActivity() {
 
   container.innerHTML = displayRecords
     .map(
-      (record) => `<div class="ai-record-row ${record.category}">
+      (rawRecord) => {
+        const record = normalizeStoredAiRecord(rawRecord);
+        const windowSignals = normalizeStringArray(record.windowSignals);
+        const pageHints = normalizeStringArray(record.pageHints);
+        return `<div class="ai-record-row ${record.category}">
         <div class="ai-record-shot">
           ${renderAiRecordShot(record)}
         </div>
@@ -905,10 +1262,18 @@ function renderActivity() {
             <span class="tag ${record.category === "distracting" ? "tag-danger" : record.category === "productive" ? "tag-ok" : ""}">${escapeHtml(record.category)}</span>
             <span>${record.source === "scheduled" ? "后台巡检" : "手动检测"}</span>
             ${record.confidence ? `<span>置信度 ${Math.round(record.confidence * 100)}%</span>` : ""}
-            ${record.hasScreenshot ? `<span>截图 ${formatBytes(record.screenshotBytes)}</span>` : ""}
+            ${record.semanticCategory ? `<span>${escapeHtml(record.semanticCategory)}</span>` : ""}
+            ${record.detectionStage ? `<span>${escapeHtml(detectionStageLabel(record.detectionStage))}</span>` : ""}
+            ${record.visibleWindowCount ? `<span>检测到 ${record.visibleWindowCount} 个可见窗口</span>` : ""}
+            ${windowSignals.length ? `<span>${escapeHtml(formatWindowSignals(windowSignals))}</span>` : ""}
+            ${record.pageSite || record.pageUrlKind || pageHints.length ? `<span>${escapeHtml(formatPageMetadata(record))}</span>` : ""}
+            <span>${escapeHtml(privacyRecordLabel(record))}</span>
+            ${record.hasScreenshot && record.screenshotBytes ? `<span>截图 ${formatBytes(record.screenshotBytes)}</span>` : ""}
           </div>
+          ${renderCategoryRuleControls(record)}
         </div>
-      </div>`,
+      </div>`;
+      },
     )
     .join("");
   container.scrollTop = 0;
@@ -920,12 +1285,131 @@ function getNewestFirstAiRecords() {
   );
 }
 
+function renderCategoryRuleControls(record) {
+  const options = SEMANTIC_CATEGORIES.map(
+    (category) =>
+      `<option value="${escapeHtml(category)}" ${record.semanticCategory === category ? "selected" : ""}>${escapeHtml(category)}</option>`,
+  ).join("");
+  return `<div class="category-rule-row" data-record-id="${escapeHtml(record.id)}">
+    <select class="category-rule-select" aria-label="手动分类">${options}</select>
+    <button type="button" class="category-rule-save">保存分类规则</button>
+  </div>`;
+}
+
 function renderAiRecordShot(record) {
   const image = aiRecordImages.get(record.id);
   if (image) {
     return `<button type="button" class="preview-shot-btn" data-record-id="${escapeHtml(record.id)}" aria-label="预览截图"><img src="data:image/png;base64,${image}" alt="desktop screenshot" /></button>`;
   }
-  return `<div class="shot-placeholder">${record.hasScreenshot ? "截图已分析" : "无截图"}</div>`;
+  return `<div class="shot-placeholder">${escapeHtml(shotPlaceholderLabel(record))}</div>`;
+}
+
+function privacyRecordLabel(record) {
+  const status = record.redactionStatus || "";
+  if (record.screenshotRedacted) return "已脱敏";
+  if (record.inputScope === "metadata_only" || status.includes("title_only") || status === "redaction_unavailable") return "文本元信息判断";
+  if (status === "local_raw") return record.screenshotPersisted ? "本地图已保存" : "本地图未保存";
+  if (status === "success" && !record.screenshotPersisted) return "脱敏图未保存";
+  return record.hasScreenshot ? "截图未保存" : "未上传截图";
+}
+
+function detectionStageLabel(stage) {
+  return {
+    rule: "规则判断",
+    text_ai: "文本 AI",
+    redacted_screenshot: "脱敏截图",
+    local_screenshot: "本地截图",
+    semantic_redacted_screenshot: "自动脱敏截图细分",
+    semantic_local_screenshot: "自动本地截图细分",
+    semantic_visual_failed: "自动截图细分失败",
+    manual_needed: "待确认",
+  }[stage] || stage;
+}
+
+function formatWindowSignals(signals) {
+  const labels = {
+    ai_tool: "AI 工具",
+    bilibili: "B站",
+    browser: "浏览器",
+    code_tool: "代码工具",
+    developer_reference: "开发资料",
+    document_tool: "文档工具",
+    entertainment_signal: "娱乐标题",
+    message_app: "社交窗口",
+    pdf_reader: "PDF 阅读器",
+    search: "搜索",
+    study_signal: "学习标题",
+    technical_research: "技术资料",
+    video_site: "视频网站",
+  };
+  return signals.map((signal) => labels[signal] || signal).slice(0, 8).join(" / ");
+}
+
+function formatPageMetadata(record) {
+  const siteLabels = { bilibili: "B站" };
+  const kindLabels = {
+    home: "首页",
+    video: "视频页",
+    bangumi: "番剧页",
+    live: "直播页",
+    search: "搜索页",
+    unknown: "未知页",
+  };
+  const hintLabels = {
+    anime_hint: "动漫提示",
+    bangumi_hint: "番剧提示",
+    clip_hint: "剪辑提示",
+    course_hint: "课程提示",
+    game_hint: "游戏提示",
+    lecture_hint: "讲座提示",
+    live_hint: "直播提示",
+    study_hint: "学习提示",
+    tutorial_hint: "教程提示",
+  };
+  return [
+    siteLabels[record.pageSite] || record.pageSite,
+    kindLabels[record.pageUrlKind] || record.pageUrlKind,
+    ...record.pageHints.map((hint) => hintLabels[hint] || hint),
+  ]
+    .filter(Boolean)
+    .slice(0, 8)
+    .join(" / ");
+}
+
+async function saveCategoryRule(record, semanticCategory) {
+  try {
+    const resp = await fetch(`${SERVER}/category-rules`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        process_name: record.processName,
+        window_title: record.windowTitle,
+        browser_domain: record.browserDomain,
+        window_signals: record.windowSignals,
+        page_site: record.pageSite,
+        page_url_kind: record.pageUrlKind,
+        page_hints: record.pageHints,
+        semantic_category: semanticCategory,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    record.semanticCategory = semanticCategory;
+    recomputeAiSummaries();
+    saveState();
+    showDetectMessage("ok", "分类规则已保存", "下次相似窗口会优先使用你的本地分类。");
+    renderActivity();
+    renderSummaries();
+  } catch (error) {
+    showDetectMessage("warn", "分类规则未保存", error.message || "后端服务未连接");
+  }
+}
+
+function shotPlaceholderLabel(record) {
+  if (record.screenshotRedacted && !record.screenshotPersisted) return "脱敏图未保存";
+  if (record.hasScreenshot && !record.screenshotPersisted) return "截图未保存";
+  if (record.redactionStatus) return privacyRecordLabel(record);
+  return record.hasScreenshot ? "截图已分析" : "无截图";
 }
 
 function setupImagePreview() {
@@ -937,8 +1421,18 @@ function setupImagePreview() {
   const chart = document.getElementById("image-preview-chart");
   const closeBtn = document.getElementById("image-preview-close");
   const hourly = document.getElementById("summary-hourly");
+  const targets = document.getElementById("summary-targets");
 
   log.addEventListener("click", (event) => {
+    const saveRule = event.target.closest(".category-rule-save");
+    if (saveRule) {
+      const row = saveRule.closest(".category-rule-row");
+      const record = state.aiRecords.find((item) => item.id === row?.dataset.recordId);
+      const category = row?.querySelector(".category-rule-select")?.value || "";
+      if (record && category) saveCategoryRule(record, category);
+      return;
+    }
+
     const button = event.target.closest(".preview-shot-btn");
     if (!button) return;
     const image = aiRecordImages.get(button.dataset.recordId);
@@ -957,7 +1451,20 @@ function setupImagePreview() {
     const button = event.target.closest(".summary-period-btn");
     if (!button) return;
     const item = state.aiSummaries.hourly.find((row) => row.label === button.dataset.summaryLabel);
-    if (item) openChartPreview(`${item.label} 应用/窗口用时`, item.targets || []);
+    if (item) openChartPreview(`${item.label} 语义分类用时`, item.targets || []);
+  });
+
+  targets.addEventListener("click", (event) => {
+    const button = event.target.closest(".pie-legend-btn");
+    if (!button) return;
+    const todayKey = todayLabel();
+    const today = state.aiSummaries.daily.find((item) => item.label === todayKey) || emptySummary();
+    const rows = attachDetailRows(
+      today.targets || state.aiSummaries.targets || [],
+      today.detailRows || state.aiSummaries.detailRows || [],
+    );
+    const item = rows.find((row) => row.label === button.dataset.pieLabel);
+    if (item?.details?.length) openChartPreview(`${item.label} 应用/窗口明细`, item.details);
   });
 
   stage.addEventListener("wheel", (event) => {
@@ -1251,7 +1758,11 @@ function renderSummaries() {
 
   const recentHours = state.aiSummaries.hourly.slice(-6).reverse();
   hourly.innerHTML = renderSummaryRows("最近小时", recentHours);
-  targets.innerHTML = renderPieChart("今日应用/窗口用时", today.targets || state.aiSummaries.targets || []);
+  const todayRows = attachDetailRows(
+    today.targets || state.aiSummaries.targets || [],
+    today.detailRows || state.aiSummaries.detailRows || [],
+  );
+  targets.innerHTML = renderPieChart("今日语义分类用时", todayRows, { clickable: true });
 }
 
 function renderSummaryRows(emptyTitle, rows) {
@@ -1313,9 +1824,12 @@ function renderPieChart(title, rows, options = {}) {
     .map((row, index) => {
       const color = PIE_COLORS[index % PIE_COLORS.length];
       const percent = Math.round((row.minutes / total) * 100);
+      const label = options.clickable
+        ? `<button type="button" class="pie-legend-btn" data-pie-label="${escapeHtml(row.label)}">${escapeHtml(row.label)}</button>`
+        : `<span>${escapeHtml(row.label)}</span>`;
       return `<div class="pie-legend-row">
         <i style="background:${color}"></i>
-        <span>${escapeHtml(row.label)}</span>
+        ${label}
         <strong>${formatMinutes(row.minutes)} · ${percent}%</strong>
       </div>`;
     })
@@ -1339,7 +1853,15 @@ function todayLabel() {
 }
 
 function emptySummary() {
-  return { productive: 0, distracting: 0, neutral: 0, idle: 0, total: 0, targets: [] };
+  return { productive: 0, distracting: 0, neutral: 0, idle: 0, total: 0, targets: [], detailRows: [] };
+}
+
+function attachDetailRows(rows, details) {
+  const detailMap = new Map((details || []).map((row) => [row.label, row.details || []]));
+  return (rows || []).map((row) => ({
+    ...row,
+    details: detailMap.get(row.label) || row.details || [],
+  }));
 }
 
 function formatMinutes(minutes) {
@@ -1374,7 +1896,9 @@ function loadState() {
         allowlistRules: parsed.allowlistRules ?? DEFAULT_ALLOWLIST_RULES,
         monitoredApps: parsed.monitoredApps ?? DEFAULT_APPS,
         activityLog: parsed.activityLog ?? [],
-        aiRecords: parsed.aiRecords ?? [],
+        aiRecords: Array.isArray(parsed.aiRecords)
+          ? parsed.aiRecords.map(normalizeStoredAiRecord)
+          : [],
         aiSummaries: {
           hourly: [],
           daily: [],
@@ -1388,6 +1912,7 @@ function loadState() {
           ...(parsed.focusStats ?? {}),
         },
         localAi: { ...DEFAULT_LOCAL_AI, ...(parsed.localAi ?? {}) },
+        privacy: { ...DEFAULT_PRIVACY, ...(parsed.privacy ?? {}) },
         scheduledDetect: { ...DEFAULT_SCHEDULED_DETECT, ...(parsed.scheduledDetect ?? {}) },
       };
     } catch {
@@ -1413,6 +1938,7 @@ function loadState() {
       distractingMinutes: 0,
     },
     localAi: { ...DEFAULT_LOCAL_AI },
+    privacy: { ...DEFAULT_PRIVACY },
     scheduledDetect: { ...DEFAULT_SCHEDULED_DETECT },
   };
 }
@@ -1515,7 +2041,7 @@ function focusApiConfig() {
 
 function showDetectMessage(kind, title, message) {
   const resultBox = document.getElementById("detect-result");
-  const icon = kind === "ok" ? "✅" : kind === "danger" ? "🚨" : "⚠️";
+  const icon = kind === "ok" ? "✓" : "!";
   resultBox.classList.remove("hidden");
   resultBox.className = `detect-result ${kind}`;
   resultBox.innerHTML = `
@@ -1527,6 +2053,146 @@ function showDetectMessage(kind, title, message) {
       </div>
     </div>
   `;
+}
+
+function renderDetectionPipeline(result = {}) {
+  const status = result.redaction_status || "";
+  const stage = result.detection_stage || "";
+  const inputScope = result.input_scope || "";
+  const manualLike =
+    result.has_screenshot ||
+    result.screenshot_redacted ||
+    [
+      "redacted_screenshot",
+      "local_screenshot",
+      "semantic_redacted_screenshot",
+      "semantic_local_screenshot",
+      "semantic_visual_failed",
+      "manual_needed",
+    ].includes(stage) ||
+    status === "redaction_unavailable";
+  const steps = [
+    {
+      label: "文本分析",
+      detail: stage === "rule" ? "规则命中" : "已完成",
+      state: "done",
+    },
+    {
+      label: "截图",
+      detail: manualLike ? (result.has_screenshot ? "已截图" : "已尝试") : "未请求",
+      state: manualLike ? (result.has_screenshot || status ? "done" : "fail") : "skip",
+    },
+    {
+      label: "本地脱敏",
+      detail: redactionPipelineLabel(result),
+      state: redactionPipelineState(result),
+    },
+    {
+      label: "上传云端",
+      detail:
+        inputScope === "redacted_screenshot"
+          ? "仅上传脱敏图"
+          : inputScope === "metadata_only"
+            ? "仅上传元信息"
+            : inputScope === "local_raw_screenshot"
+              ? "本地模型未上传"
+              : "未上传截图",
+      state:
+        inputScope === "redacted_screenshot" || inputScope === "metadata_only"
+          ? "done"
+          : inputScope === "local_raw_screenshot"
+            ? "skip"
+            : "skip",
+    },
+    {
+      label: "AI 返回",
+      detail: result.error ? "失败" : result.reason ? "已返回" : "无返回",
+      state: result.error ? "fail" : result.reason ? "done" : "skip",
+    },
+  ];
+
+  return `<div class="detect-pipeline" aria-label="检测处理流程">
+    ${steps
+      .map(
+        (step) => `<div class="pipeline-step ${step.state}">
+          <span class="pipeline-dot"></span>
+          <strong>${escapeHtml(step.label)}</strong>
+          <small>${escapeHtml(step.detail)}</small>
+        </div>`,
+      )
+      .join("")}
+  </div>`;
+}
+
+function redactionPipelineState(result) {
+  const status = result.redaction_status || "";
+  if (result.screenshot_redacted || status === "success") return "done";
+  if (status === "local_raw") return "skip";
+  if (status === "redaction_unavailable") return "fail";
+  if (status.includes("title_only") || status === "skipped" || !status) return "skip";
+  return "skip";
+}
+
+function redactionPipelineLabel(result) {
+  const status = result.redaction_status || "";
+  if (result.screenshot_redacted || status === "success") return "已脱敏";
+  if (status === "local_raw") return "本地原图";
+  if (status === "redaction_unavailable") {
+    return result.redaction_error ? result.redaction_error.slice(0, 48) : "不可用";
+  }
+  if (status === "risky_title_only") return "高风险未截图";
+  if (status === "local_only_title_only") return "仅本地/标题";
+  if (status === "confirm_required_title_only") return "等待确认";
+  if (status.includes("title_only")) return "仅标题";
+  return "未执行";
+}
+
+function renderLiveDetectionPipeline(options = {}) {
+  const manualScreenshot = Boolean(options.manualScreenshot);
+  const steps = [
+    {
+      key: "text",
+      label: "文本分析",
+      detail: manualScreenshot ? "正在准备上下文" : "正在分析元信息",
+      state: "active",
+    },
+    {
+      key: "capture",
+      label: "截图",
+      detail: manualScreenshot ? "等待截图" : "未请求",
+      state: manualScreenshot ? "pending" : "skip",
+    },
+    {
+      key: "redact",
+      label: "本地脱敏",
+      detail: manualScreenshot ? "等待 CnOCR" : "未执行",
+      state: manualScreenshot ? "pending" : "skip",
+    },
+    {
+      key: "upload",
+      label: "上传云端",
+      detail: manualScreenshot ? "等待脱敏图" : "仅上传元信息",
+      state: manualScreenshot ? "pending" : "skip",
+    },
+    {
+      key: "ai",
+      label: "AI 返回",
+      detail: "等待返回",
+      state: "pending",
+    },
+  ];
+
+  return `<div class="detect-pipeline" aria-label="检测处理流程">
+    ${steps
+      .map(
+        (step) => `<div class="pipeline-step ${step.state}">
+          <span class="pipeline-dot"></span>
+          <strong>${escapeHtml(step.label)}</strong>
+          <small>${escapeHtml(step.detail)}</small>
+        </div>`,
+      )
+      .join("")}
+  </div>`;
 }
 
 async function detectProcrastination(options = {}) {
@@ -1561,7 +2227,7 @@ async function runDetectProcrastination(options = {}) {
     resultBox.className = "detect-result warn";
     resultBox.innerHTML = `
       <div class="detect-card">
-        <div class="detect-icon">⚠️</div>
+        <div class="detect-icon warn">!</div>
         <div class="detect-info">
           <strong>服务未连接</strong>
           <p class="detect-reason">请先在 Windows 上启动 focus-guard-server（端口 3001）</p>
@@ -1572,22 +2238,28 @@ async function runDetectProcrastination(options = {}) {
     return;
   }
 
+  const manualScreenshot = Boolean(options.manualScreenshot);
+
   resultBox.innerHTML = `
     <div class="detect-loading">
       <div class="spinner"></div>
-      <span>正在截图分析当前桌面...</span>
+      <span>${manualScreenshot ? "正在手动截图分析当前桌面..." : "正在根据窗口元信息检测..."}</span>
     </div>
+    ${renderLiveDetectionPipeline(options)}
   `;
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
+    const timeoutMs = manualScreenshot ? 600000 : 90000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     const response = await fetch(`${SERVER}/detect`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         skip_browser: options.source === "scheduled",
         source: options.source || "manual",
+        manual_screenshot: manualScreenshot,
+        ocr_backend: manualScreenshot ? "cnocr" : state.privacy.ocrBackend,
       }),
       signal: controller.signal,
     });
@@ -1599,7 +2271,7 @@ async function runDetectProcrastination(options = {}) {
         showDetectMessage(
           "warn",
           "检测正在进行",
-          "后台定时巡检正在截图分析当前桌面，请稍等这轮完成后再手动检测。",
+          "后台定时巡检正在根据窗口元信息检测，请稍等这轮完成后再手动检测。",
         );
         renderScheduledDetectStatus();
         return;
@@ -1607,7 +2279,7 @@ async function runDetectProcrastination(options = {}) {
       throw new Error(err.error || `HTTP ${response.status}`);
     }
 
-    const result = await response.json();
+    const result = normalizeDetectResult(await response.json());
 
     if (result.skipped) {
       recordAiJudgement(result, { source: options.source || "manual" });
@@ -1626,21 +2298,21 @@ async function runDetectProcrastination(options = {}) {
       resultBox.className = "detect-result warn";
       resultBox.innerHTML = `
         <div class="detect-card">
-          <div class="detect-icon warn">⚠️</div>
+          <div class="detect-icon warn">!</div>
           <div class="detect-info">
             <strong>AI 分析失败</strong>
             <p class="detect-reason">${escapeHtml(result.error)}</p>
             ${needsKey ? '<p class="detect-hint">请在上方输入 API Key 并点击保存</p>' : ""}
             ${result.process_name ? `<p class="detect-window">${escapeHtml(result.process_name)} — ${escapeHtml(result.window_title || "")}</p>` : ""}
-            ${result.has_screenshot ? `<p class="detect-hint">截图已捕获 (${formatBytes(result.screenshot_bytes)})，但 AI 返回错误</p>` : ""}
+            <p class="detect-hint">${escapeHtml(detectPrivacyHint(result))}</p>
+            ${renderDetectionPipeline(result)}
           </div>
         </div>
       `;
       return;
     }
 
-    const isDistracting =
-      result.category === "distracting" || result.category === "distraction";
+    const isDistracting = result.category === "distracting";
     const confidence = Math.round((result.confidence || 0) * 100);
     const windowInfo = result.process_name
       ? `${result.process_name} — ${result.window_title}`
@@ -1652,7 +2324,7 @@ async function runDetectProcrastination(options = {}) {
       resultBox.className = "detect-result danger";
       resultBox.innerHTML = `
         <div class="detect-card">
-          <div class="detect-icon danger">🚨</div>
+          <div class="detect-icon danger">!</div>
           <div class="detect-info">
             <strong>检测到摸鱼行为</strong>
             <p class="detect-reason">${escapeHtml(result.reason || "")}</p>
@@ -1662,7 +2334,8 @@ async function runDetectProcrastination(options = {}) {
               <span>建议: ${result.suggested_action === "intent_required" ? "需要输入意图" : "观察中"}</span>
             </div>
             ${windowInfo ? `<p class="detect-window">${escapeHtml(windowInfo)}</p>` : ""}
-            ${result.has_screenshot ? `<p class="detect-hint">截图已发送给 AI 分析 (${formatBytes(result.screenshot_bytes)} base64)</p>` : ""}
+            <p class="detect-hint">${escapeHtml(detectPrivacyHint(result))}</p>
+            ${renderDetectionPipeline(result)}
             ${activeAllow ? `<p class="detect-hint">已临时放行至 ${new Date(activeAllow.until).toLocaleTimeString()}</p>` : ""}
           </div>
         </div>
@@ -1675,16 +2348,6 @@ async function runDetectProcrastination(options = {}) {
 
       openInterventionModal(result);
 
-      if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-        chrome.storage.local.set({
-          pendingInterference: {
-            reason: result.reason || "AI 判断你当前可能在摸鱼",
-            category: result.category,
-            confidence: result.confidence,
-            timestamp: Date.now(),
-          },
-        });
-      }
       if (options.source === "scheduled") {
         notifyScheduledDistraction(result);
       }
@@ -1694,7 +2357,7 @@ async function runDetectProcrastination(options = {}) {
       resultBox.className = "detect-result ok";
       resultBox.innerHTML = `
         <div class="detect-card">
-          <div class="detect-icon ok">✅</div>
+          <div class="detect-icon ok">✓</div>
           <div class="detect-info">
             <strong>专注状态正常</strong>
             <p class="detect-reason">${escapeHtml(result.reason || "")}</p>
@@ -1703,7 +2366,8 @@ async function runDetectProcrastination(options = {}) {
               <span>置信度: ${confidence}%</span>
             </div>
             ${windowInfo ? `<p class="detect-window">${escapeHtml(windowInfo)}</p>` : ""}
-            ${result.has_screenshot ? `<p class="detect-hint">截图已发送给 AI 分析 (${formatBytes(result.screenshot_bytes)} base64)</p>` : ""}
+            <p class="detect-hint">${escapeHtml(detectPrivacyHint(result))}</p>
+            ${renderDetectionPipeline(result)}
           </div>
         </div>
       `;
@@ -1711,30 +2375,55 @@ async function runDetectProcrastination(options = {}) {
       return result;
     }
   } catch (error) {
-    const msg =
-      error.name === "AbortError"
-        ? "请求超时，focus-guard-server 可能未运行"
-        : error.message?.includes("fetch")
-          ? "无法连接 focus-guard-server，请先在 Windows 上运行"
-          : error.message || "未知错误";
+    const timedOut = error.name === "AbortError";
+    const msg = timedOut
+      ? manualScreenshot
+        ? "手动截图分析耗时较长，后端可能仍在脱敏或等待云端 AI 返回。请稍后查看 AI 判断记录。"
+        : "请求超时，focus-guard-server 可能未运行"
+      : error.message?.includes("fetch")
+        ? "无法连接 focus-guard-server，请先在 Windows 上运行"
+        : error.message || "未知错误";
 
-    const needsKey = msg.includes("服务未连接") || msg.includes("无法连接");
+    const needsKey = !timedOut && (msg.includes("服务未连接") || msg.includes("无法连接"));
     if (needsKey) {
       focusApiConfig();
+    }
+    if (manualScreenshot) {
+      loadAiRecords();
     }
 
     resultBox.className = "detect-result warn";
     resultBox.innerHTML = `
       <div class="detect-card">
-        <div class="detect-icon warn">⚠️</div>
+        <div class="detect-icon warn">!</div>
         <div class="detect-info">
-          <strong>AI 服务不可用</strong>
+          <strong>${timedOut && manualScreenshot ? "截图分析仍在处理中" : "AI 服务不可用"}</strong>
           <p class="detect-reason">${escapeHtml(msg)}</p>
-          <p class="detect-hint">确保 focus-guard-server 在运行（端口 3001），且已配置有效的 AI 供应商</p>
+          <p class="detect-hint">${timedOut && manualScreenshot ? "如果记录稍后出现成功结果，可以忽略本提示。" : "确保 focus-guard-server 在运行（端口 3001），且已配置有效的 AI 供应商"}</p>
         </div>
       </div>
     `;
   }
+}
+
+function detectPrivacyHint(result) {
+  const status = result.redaction_status || "";
+  if (result.screenshot_redacted) {
+    return `已发送脱敏截图给 AI 分析 (${formatBytes(result.screenshot_bytes || 0)})`;
+  }
+  if (status === "local_raw") {
+    return `本地模型使用原始截图分析，历史记录默认不保存原图 (${formatBytes(result.screenshot_bytes || 0)})`;
+  }
+  if (result.input_scope === "metadata_only" || status.includes("title_only") || status === "redaction_unavailable") {
+    if (status === "redaction_unavailable" && result.redaction_error) {
+      return `本次未上传截图：本地脱敏失败（${result.redaction_error}）`;
+    }
+    return "隐私保护已启用：本次未上传截图，仅根据本地提取的文本元信息判断";
+  }
+  if (result.has_screenshot) {
+    return `截图已分析，但历史记录未保存原图 (${formatBytes(result.screenshot_bytes || 0)})`;
+  }
+  return "本次未上传截图";
 }
 
 function parseAnalysisResult(text) {

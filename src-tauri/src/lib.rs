@@ -107,6 +107,9 @@ pub struct AiContext {
     pub process_name: String,
     pub window_title: String,
     pub screenshot_base64: Option<String>,
+    pub browser_domain: Option<String>,
+    pub browser_title: Option<String>,
+    pub safe_signals: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -115,6 +118,9 @@ pub struct AiClassification {
     pub confidence: f32,
     pub reason: String,
     pub suggested_action: String,
+    pub semantic_category: Option<String>,
+    pub privacy_risk: Option<String>,
+    pub needs_visual: bool,
     pub error: Option<String>,
 }
 
@@ -125,6 +131,9 @@ impl AiClassification {
             confidence: 0.0,
             reason: reason.to_string(),
             suggested_action: "none".to_string(),
+            semantic_category: None,
+            privacy_risk: None,
+            needs_visual: false,
             error: None,
         }
     }
@@ -173,6 +182,14 @@ pub struct ForegroundWindow {
     pub process_id: u32,
     pub process_name: String,
     pub window_title: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowSnapshot {
+    pub process_id: u32,
+    pub process_name: String,
+    pub window_title: String,
+    pub is_foreground: bool,
 }
 
 pub fn evaluate_app_focus(state: &AppPolicyState, event: AppEvent) -> Decision {
@@ -244,7 +261,10 @@ pub fn capture_context() -> Option<AiContext> {
     Some(AiContext {
         process_name: foreground.process_name,
         window_title: foreground.window_title,
-        screenshot_base64: capture_screen_thumbnail_base64(),
+        screenshot_base64: None,
+        browser_domain: None,
+        browser_title: None,
+        safe_signals: Vec::new(),
     })
 }
 
@@ -290,11 +310,27 @@ pub fn local_ai_request_json(config: &LocalAiConfig, context: &AiContext) -> Str
     } else {
         &context.window_title
     };
-    let user_content = format!(
-        "Full desktop screenshot. Active process: {}. Window title: {}. Analyze ALL visible content on screen, not just the active window. Return Chinese text in reason and suggested explanation fields.",
-        context.process_name, title
+    let screenshot_hint = if context.screenshot_base64.is_some() {
+        "A privacy-filtered desktop screenshot is attached. Analyze ALL visible content on screen, not just the active window."
+    } else {
+        "No screenshot is attached because privacy protection is active. Classify from process name, title class, browser metadata, and extracted visible-window signals only."
+    };
+    let signal_bits = if context.safe_signals.is_empty() {
+        "none".to_string()
+    } else {
+        context.safe_signals.join(", ")
+    };
+    let browser_bits = format!(
+        " Browser domain: {}. Browser title class: {}. Safe signals: {}.",
+        context.browser_domain.as_deref().unwrap_or(""),
+        context.browser_title.as_deref().unwrap_or(""),
+        signal_bits
     );
-    let system_msg = "/no_think\nYou are Focus Guard, a strict focus assistant analyzing a FULL DESKTOP SCREENSHOT. CRITICAL RULES:\n1. Look at the ENTIRE screen - every pixel matters, not just the largest window.\n2. If you see ANY video site (bilibili, youtube, douyin, tiktok, netflix, twitch, gaming content, live streams), classify as \"distracting\" regardless of what else is visible.\n3. If you see social media feeds, short videos, gaming, entertainment - classify as \"distracting\" or \"entertainment\".\n4. Split screen with entertainment on ANY side = distracting.\n5. Only classify as \"study\" if the ENTIRE screen shows educational/productive content.\n6. Only classify as \"work\" if the ENTIRE screen shows work-related applications.\nCommon distracting sites to watch for: bilibili.com, youtube.com, douyin.com, tiktok.com, netflix.com, twitch.tv, x.com, weibo.com, zhihu.com (non-study).\nReturn JSON only. Keep JSON field names and category values in English, but write the reason value in Simplified Chinese.\nReturn JSON: {\"category\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"中文原因\",\"suggested_action\":\"none|intent_required\"}\nCategories: study, work, entertainment, distracting, unknown.";
+    let user_content = format!(
+        "{} Active process: {}. Window title: {}.{} Return Chinese text in reason and suggested explanation fields.",
+        screenshot_hint, context.process_name, title, browser_bits
+    );
+    let system_msg = "/no_think\nYou are Focus Guard, a strict focus assistant analyzing desktop activity. CRITICAL RULES:\n1. If a screenshot is attached, look at the ENTIRE screen - every pixel matters, not just the largest window.\n2. If no screenshot is attached, classify from low-sensitivity extracted signals only: process name, browser domain, title class, and safe signals. Safe signals may include visible-window labels such as code_tool, pdf_reader, message_app, study_signal, entertainment_signal, site_bilibili, url_kind_video, course_hint, anime_hint, game_hint, or live_hint. Treat missing details as intentionally redacted privacy data.\n3. Do not infer private content beyond the provided signals. Do not combine B站/site_bilibili with study signals from unrelated PDF/document/code windows. If only site_bilibili/bilibili is present without course/tutorial/lecture/study hints or entertainment hints, return unknown/待归类.\n4. If signals are enough, use needs_visual=false. If signals are ambiguous, return unknown or low confidence, semantic_category=待归类, and needs_visual=true. This means manual review may be useful; do not assume a screenshot will be uploaded.\n5. Video/social/game/short-video signals generally classify as distracting unless same-tab course/tutorial/study hints dominate.\n6. Only classify as study/work when safe signals clearly support educational/productive content.\n7. Do not quote private messages, credentials, IDs, account names, or personal data in reason. Summarize activity only.\nExamples: Google search plus technical_error/search/tech signals => 查资料; Codex/VS Code/Rust tools => 写代码; pdf_reader plus compiler/math/course signals => 学编译原理 or 学概率统计; site_bilibili plus course_hint/tutorial_hint/lecture_hint/study_hint => B站网课; site_bilibili plus anime_hint/game_hint/live_hint/clip_hint => B站娱乐视频; foreground chat_app/message_app => 回消息.\nSemantic categories should map AI chat to the real task/topic, not to a separate \"AI chat\" category.\nReturn JSON only. Keep JSON field names and category values in English, but write the reason value in Simplified Chinese.\nReturn JSON: {\"category\":\"...\",\"confidence\":0.0-1.0,\"reason\":\"中文原因\",\"suggested_action\":\"none|intent_required\",\"semantic_category\":\"写代码|学概率统计|学编译原理|B站网课|B站娱乐视频|回消息|查资料|项目管理|其他|待归类\",\"privacy_risk\":\"none|low|medium|high\",\"needs_visual\":false}\nCategories: study, work, entertainment, distracting, unknown.";
 
     if is_doubao_endpoint(&config.endpoint) {
         return doubao_request_json(config, &user_content, system_msg, context);
@@ -420,6 +456,16 @@ pub fn read_foreground_window() -> Option<ForegroundWindow> {
 #[cfg(not(windows))]
 pub fn read_foreground_window() -> Option<ForegroundWindow> {
     None
+}
+
+#[cfg(windows)]
+pub fn read_visible_windows() -> Vec<WindowSnapshot> {
+    windows_visible_windows()
+}
+
+#[cfg(not(windows))]
+pub fn read_visible_windows() -> Vec<WindowSnapshot> {
+    Vec::new()
 }
 
 pub fn encode_native_message(json: &str) -> Vec<u8> {
@@ -623,7 +669,7 @@ fn parse_ai_classification(json: &str) -> AiClassification {
     }
 
     AiClassification {
-        category,
+        category: normalize_ai_category(&category),
         confidence: v.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.0) as f32,
         reason: v
             .get("reason")
@@ -635,7 +681,28 @@ fn parse_ai_classification(json: &str) -> AiClassification {
             .and_then(|a| a.as_str())
             .unwrap_or("none")
             .to_string(),
+        semantic_category: v
+            .get("semantic_category")
+            .and_then(|c| c.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        privacy_risk: v
+            .get("privacy_risk")
+            .and_then(|r| r.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        needs_visual: v
+            .get("needs_visual")
+            .and_then(|n| n.as_bool())
+            .unwrap_or(false),
         error: None,
+    }
+}
+
+fn normalize_ai_category(category: &str) -> String {
+    match category {
+        "entertainment" | "distraction" | "distracting" => "distracting".to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -713,6 +780,11 @@ pub fn matches_host_rule(host: &str, rule: &str) -> bool {
     if clean_rule.starts_with("*.") && clean_rule.ends_with(".*") {
         let token = &clean_rule[2..clean_rule.len() - 2];
         return host.split('.').any(|part| part == token);
+    }
+
+    if clean_rule.starts_with('*') && clean_rule.ends_with('*') {
+        let token = clean_rule[1..clean_rule.len() - 1].trim_matches('.');
+        return !token.is_empty() && host.split('.').any(|part| part == token);
     }
 
     if !clean_rule.contains('.') {
@@ -883,13 +955,84 @@ pub fn capture_screen_thumbnail_base64() -> Option<String> {
 
 #[cfg(windows)]
 fn windows_foreground_window() -> Option<ForegroundWindow> {
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetForegroundWindow() -> isize;
+    }
+
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        window_snapshot_from_hwnd(hwnd, hwnd).map(|window| ForegroundWindow {
+            process_id: window.process_id,
+            process_name: window.process_name,
+            window_title: window.window_title,
+        })
+    }
+}
+
+#[cfg(windows)]
+fn windows_visible_windows() -> Vec<WindowSnapshot> {
+    use std::collections::HashSet;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn EnumWindows(callback: unsafe extern "system" fn(isize, isize) -> i32, lparam: isize)
+            -> i32;
+        fn GetForegroundWindow() -> isize;
+        fn GetWindow(hwnd: isize, command: u32) -> isize;
+        fn IsIconic(hwnd: isize) -> i32;
+        fn IsWindowVisible(hwnd: isize) -> i32;
+    }
+
+    const GW_OWNER: u32 = 4;
+
+    unsafe extern "system" fn enum_window(hwnd: isize, lparam: isize) -> i32 {
+        let windows = &mut *(lparam as *mut Vec<isize>);
+        windows.push(hwnd);
+        1
+    }
+
+    unsafe {
+        let foreground = GetForegroundWindow();
+        let mut handles = Vec::new();
+        EnumWindows(enum_window, &mut handles as *mut Vec<isize> as isize);
+
+        let mut seen = HashSet::new();
+        let mut snapshots = Vec::new();
+        for hwnd in handles {
+            if hwnd == 0 || IsWindowVisible(hwnd) == 0 || IsIconic(hwnd) != 0 {
+                continue;
+            }
+            if GetWindow(hwnd, GW_OWNER) != 0 {
+                continue;
+            }
+            let Some(snapshot) = window_snapshot_from_hwnd(hwnd, foreground) else {
+                continue;
+            };
+            if snapshot.window_title.trim().is_empty() || is_system_shell_window(&snapshot) {
+                continue;
+            }
+            let key = (
+                snapshot.process_id,
+                snapshot.process_name.clone(),
+                snapshot.window_title.clone(),
+            );
+            if seen.insert(key) {
+                snapshots.push(snapshot);
+            }
+        }
+        snapshots
+    }
+}
+
+#[cfg(windows)]
+fn window_snapshot_from_hwnd(hwnd: isize, foreground: isize) -> Option<WindowSnapshot> {
     use std::ffi::c_void;
 
     const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 
     #[link(name = "user32")]
     unsafe extern "system" {
-        fn GetForegroundWindow() -> isize;
         fn GetWindowTextW(hwnd: isize, lp_string: *mut u16, n_max_count: i32) -> i32;
         fn GetWindowThreadProcessId(hwnd: isize, process_id: *mut u32) -> u32;
     }
@@ -907,15 +1050,12 @@ fn windows_foreground_window() -> Option<ForegroundWindow> {
     }
 
     unsafe {
-        let hwnd = GetForegroundWindow();
-
         if hwnd == 0 {
             return None;
         }
 
         let mut process_id = 0_u32;
         GetWindowThreadProcessId(hwnd, &mut process_id);
-
         if process_id == 0 {
             return None;
         }
@@ -929,36 +1069,47 @@ fn windows_foreground_window() -> Option<ForegroundWindow> {
         };
 
         let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id);
+        let process_name = if process.is_null() {
+            String::new()
+        } else {
+            let mut path_buffer = vec![0_u16; 1024];
+            let mut path_len = path_buffer.len() as u32;
+            let name =
+                if QueryFullProcessImageNameW(process, 0, path_buffer.as_mut_ptr(), &mut path_len)
+                    != 0
+                {
+                    let full_path = String::from_utf16_lossy(&path_buffer[..path_len as usize]);
+                    full_path
+                        .rsplit('\\')
+                        .next()
+                        .unwrap_or(&full_path)
+                        .to_string()
+                } else {
+                    String::new()
+                };
+            CloseHandle(process);
+            name
+        };
 
-        if process.is_null() {
-            return Some(ForegroundWindow {
-                process_id,
-                process_name: String::new(),
-                window_title,
-            });
-        }
-
-        let mut path_buffer = vec![0_u16; 1024];
-        let mut path_len = path_buffer.len() as u32;
-        let process_name =
-            if QueryFullProcessImageNameW(process, 0, path_buffer.as_mut_ptr(), &mut path_len) != 0
-            {
-                let full_path = String::from_utf16_lossy(&path_buffer[..path_len as usize]);
-                full_path
-                    .rsplit('\\')
-                    .next()
-                    .unwrap_or(&full_path)
-                    .to_string()
-            } else {
-                String::new()
-            };
-
-        CloseHandle(process);
-
-        Some(ForegroundWindow {
+        Some(WindowSnapshot {
             process_id,
             process_name,
             window_title,
+            is_foreground: hwnd == foreground,
         })
     }
+}
+
+#[cfg(windows)]
+fn is_system_shell_window(window: &WindowSnapshot) -> bool {
+    let process = window.process_name.to_ascii_lowercase();
+    let title = window.window_title.trim();
+    (process == "explorer.exe"
+        && matches!(
+            title,
+            "Program Manager" | "任务切换" | "系统托盘溢出窗口。"
+        ))
+        || process == "textinputhost.exe"
+        || process == "searchhost.exe"
+        || process == "shellexperiencehost.exe"
 }

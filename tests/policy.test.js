@@ -61,6 +61,12 @@ test("exact allowlist rules do not accidentally allow distracting subdomains", (
   assert.equal(isAllowlistedSite("https://tieba.baidu.com", ["=baidu.com"]), false);
 });
 
+test("allowlist supports user-entered contains wildcard rules for localhost", () => {
+  assert.equal(isAllowlistedSite("http://localhost:3000", ["*localhost*"]), true);
+  assert.equal(isAllowlistedSite("http://foo.localhost:3000", ["*localhost*"]), true);
+  assert.equal(isAllowlistedSite("https://notlocalhost.com", ["*localhost*"]), false);
+});
+
 test("unknown sites ask whether to add them during focus mode", () => {
   const state = createPolicyState();
 
