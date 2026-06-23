@@ -276,7 +276,7 @@ fn main() {
                         Err(e) => ("500 Internal Server Error", format!(r#"{{"error":"{}"}}"#, json_esc(&e))),
                     }
                 } else {
-                    match handle_detect() {
+                    match handle_detect(&body_str) {
                         Ok(json) => ("200 OK", json),
                         Err(e) => ("500 Internal Server Error", format!(r#"{{"error":"{}"}}"#, json_esc(&e))),
                     }
@@ -736,16 +736,66 @@ fn handle_test_all_providers() -> Result<String, String> {
     }).to_string())
 }
 
-fn handle_detect() -> Result<String, String> {
-    let foreground = read_foreground_window().unwrap_or_else(|| {
+#[derive(Clone, Debug, Default)]
+struct BrowserContext {
+    domain: String,
+    title: String,
+}
+
+fn should_use_browser_only(body: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| value.get("browser_only").and_then(|v| v.as_bool()))
+        == Some(true)
+}
+
+fn browser_context_from_body(body: &str) -> BrowserContext {
+    let value = serde_json::from_str::<serde_json::Value>(body).ok();
+    let context = value
+        .as_ref()
+        .and_then(|value| value.get("browser_context"));
+    BrowserContext {
+        domain: context
+            .and_then(|value| value.get("domain"))
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        title: context
+            .and_then(|value| value.get("title"))
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string(),
+    }
+}
+
+fn handle_detect(body: &str) -> Result<String, String> {
+    let browser_only = should_use_browser_only(body);
+    let browser_context = browser_context_from_body(body);
+    let foreground = if browser_only {
         focus_guard_desktop::ForegroundWindow {
             process_id: 0,
-            process_name: "unknown".into(),
-            window_title: "unknown".into(),
+            process_name: "chrome.exe".into(),
+            window_title: if browser_context.title.is_empty() {
+                browser_context.domain
+            } else {
+                browser_context.title
+            },
         }
-    });
+    } else {
+        read_foreground_window().unwrap_or_else(|| {
+            focus_guard_desktop::ForegroundWindow {
+                process_id: 0,
+                process_name: "unknown".into(),
+                window_title: "unknown".into(),
+            }
+        })
+    };
 
-    let screenshot_b64 = capture_screen_thumbnail_base64();
+    let screenshot_b64 = if browser_only {
+        None
+    } else {
+        capture_screen_thumbnail_base64()
+    };
 
     let context = AiContext {
         process_name: foreground.process_name.clone(),
@@ -957,7 +1007,23 @@ fn json_esc(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{detect_error_response, endpoint_requires_api_key, handle_validate_reason, parse_curl};
+    use super::{
+        browser_context_from_body, detect_error_response, endpoint_requires_api_key,
+        handle_validate_reason, parse_curl, should_use_browser_only,
+    };
+
+    #[test]
+    fn browser_only_detect_request_uses_browser_context() {
+        let body =
+            r#"{"browser_only":true,"browser_context":{"domain":"gemini.google.com","title":"AI"}}"#;
+        let context = browser_context_from_body(body);
+
+        assert!(should_use_browser_only(body));
+        assert_eq!(context.domain, "gemini.google.com");
+        assert_eq!(context.title, "AI");
+        assert!(!should_use_browser_only(r#"{"browser_only":false}"#));
+        assert!(!should_use_browser_only("{}"));
+    }
 
     #[test]
     fn parse_curl_extracts_bearer_key_and_json_model() {

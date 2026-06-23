@@ -79,7 +79,7 @@ function categoryLabel(category) {
 }
 
 function expiryActionForCategory(category) {
-  return category === "play" ? "close_tab" : "check_in";
+  return "check_in";
 }
 
 function escapeHtml(value) {

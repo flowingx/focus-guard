@@ -59,7 +59,19 @@ test("extension exposes an in-browser expiry page for forceful check-ins", async
   assert.match(html, /continue-study/);
   assert.match(html, /finish-session/);
   assert.match(js, /extend_session/);
-  assert.match(js, /close_current_tab/);
+  assert.match(js, /minutes: 5/);
+  assert.match(html, /再给 5 分钟/);
+  assert.doesNotMatch(html, /再给 10 分钟/);
+  assert.match(js, /close_expired_page/);
+  assert.doesNotMatch(js, /location\.href = originalUrl/);
+});
+
+test("extension never stores destructive close-tab expiry actions for default intents", async () => {
+  const background = await readFile("extension/background.js", "utf8");
+  const interstitial = await readFile("extension/interstitial.js", "utf8");
+
+  assert.doesNotMatch(background, /expiryAction: "close_tab"/);
+  assert.doesNotMatch(interstitial, /return category === "play" \? "close_tab"/);
 });
 
 test("extension exposes an unknown-site review page", async () => {
@@ -150,7 +162,8 @@ test("extension defines default video presets with play and study categories", a
   const background = await readFile("extension/background.js", "utf8");
 
   assert.match(background, /DEFAULT_INTENT_PRESETS/);
-  assert.match(background, /放松 10 分钟/);
+  assert.match(background, /放松 5 分钟/);
+  assert.doesNotMatch(background, /放松 10 分钟/);
   assert.match(background, /看网课\/学习视频/);
   assert.match(background, /category: "play"/);
   assert.match(background, /category: "study"/);
@@ -197,6 +210,7 @@ test("extension AI detect fetch matches server CORS contract", async () => {
   assert.match(background, /const AI_DETECT_URL = "http:\/\/127\.0\.0\.1:3001\/detect"/);
   assert.match(background, /method: "POST"/);
   assert.match(background, /"Content-Type": "application\/json"/);
+  assert.match(background, /browser_only:\s*true/);
 
   assert.match(server, /\("OPTIONS", _\)/);
   assert.match(server, /Access-Control-Allow-Origin: \*/);
@@ -217,18 +231,20 @@ test("extension records AI detect failures for debugging", async () => {
   assert.match(background, /status: isDistracting \? "interference_shown" : "ok"/);
 });
 
-test("interference approval creates a short intent session before dismissing overlay", async () => {
+test("interference approval creates a temporary AI allow before dismissing overlay", async () => {
   const js = await readFile("extension/interference.js", "utf8");
 
   assert.match(js, /type: "validate_distraction_reason"/);
-  assert.match(js, /type: "submit_intent"/);
-  assert.match(js, /minutes: 10/);
-  assert.match(js, /saveCandidate: false/);
+  assert.match(js, /type: "approve_ai_intervention"/);
+  assert.doesNotMatch(js, /type: "submit_intent"/);
+  assert.match(js, /const ALLOW_MINUTES = 5/);
+  assert.match(js, /minutes: ALLOW_MINUTES/);
+  assert.doesNotMatch(js, /saveCandidate: false/);
   assert.match(js, /放行失败，请重试/);
   assert.match(js, /overlay\.remove/);
 });
 
-test("close current tab reports failures to intervention pages", async () => {
+test("close current tab reports failures but intervention pages do not use it", async () => {
   const background = await readFile("extension/background.js", "utf8");
   const interference = await readFile("extension/interference.js", "utf8");
   const expiredHtml = await readFile("extension/expired.html", "utf8");
@@ -238,9 +254,11 @@ test("close current tab reports failures to intervention pages", async () => {
   assert.match(background, /error: "tab_close_failed"/);
   assert.match(background, /return true/);
   assert.match(background, /return false/);
-  assert.match(interference, /关闭失败，请手动关闭此标签页/);
+  assert.doesNotMatch(interference, /关闭失败，请手动关闭此标签页/);
   assert.match(expiredHtml, /expired-status/);
-  assert.match(expiredJs, /关闭失败，请手动关闭此标签页/);
+  assert.doesNotMatch(expiredJs, /关闭失败，请手动关闭此标签页/);
+  assert.doesNotMatch(interference, /type: "close_current_tab"/);
+  assert.doesNotMatch(expiredJs, /type: "close_current_tab"/);
 });
 
 test("extension rejects invalid intent session messages at the background boundary", async () => {

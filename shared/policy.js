@@ -62,10 +62,10 @@ export const DEFAULT_ALLOWLIST_RULES = [
 export const DEFAULT_INTENT_PRESETS = {
   video: [
     {
-      reason: "放松 10 分钟",
-      minutes: 10,
+      reason: "放松 5 分钟",
+      minutes: 5,
       category: "play",
-      expiryAction: "close_tab",
+      expiryAction: "check_in",
       source: "preset",
     },
     {
@@ -79,7 +79,7 @@ export const DEFAULT_INTENT_PRESETS = {
       reason: "觉得无聊，先停一下",
       minutes: 5,
       category: "play",
-      expiryAction: "close_tab",
+      expiryAction: "check_in",
       source: "preset",
     },
   ],
@@ -92,10 +92,10 @@ export const DEFAULT_INTENT_PRESETS = {
       source: "preset",
     },
     {
-      reason: "放松 10 分钟",
-      minutes: 10,
+      reason: "放松 5 分钟",
+      minutes: 5,
       category: "play",
-      expiryAction: "close_tab",
+      expiryAction: "check_in",
       source: "preset",
     },
     {
@@ -408,7 +408,7 @@ function presetGroupForTarget(target) {
 }
 
 function expiryActionForCategory(category) {
-  return category === "play" ? "close_tab" : "check_in";
+  return "check_in";
 }
 
 function matchesHostRule(host, rule) {

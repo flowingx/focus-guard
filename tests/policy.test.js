@@ -96,9 +96,9 @@ test("video sites include default play and study presets before custom candidate
       candidate.expiryAction,
     ]),
     [
-      ["放松 10 分钟", "play", 10, "close_tab"],
+      ["放松 5 分钟", "play", 5, "check_in"],
       ["看网课/学习视频", "study", 10, "check_in"],
-      ["觉得无聊，先停一下", "play", 5, "close_tab"],
+      ["觉得无聊，先停一下", "play", 5, "check_in"],
     ],
   );
   assert.equal(DEFAULT_INTENT_PRESETS.video.length, 3);
@@ -278,13 +278,19 @@ test("getVisibleCandidates deduplicates saved over preset by same reason", () =>
   const state = createPolicyState();
   const target = "site:bilibili.com";
 
-  recordIntentCandidate(state, target, "放松 10 分钟", 30, 1000);
+  recordIntentCandidate(state, target, "放松 5 分钟", 30, 1000);
 
   const candidates = getVisibleCandidates(state, target);
-  const relaxed = candidates.find((c) => c.reason === "放松 10 分钟");
+  const relaxed = candidates.find((c) => c.reason === "放松 5 分钟");
 
   assert.equal(relaxed.minutes, 30);
   assert.equal(relaxed.source, "saved");
+});
+
+test("play intent presets use check-in instead of destructive tab closing", () => {
+  for (const preset of [...DEFAULT_INTENT_PRESETS.video, ...DEFAULT_INTENT_PRESETS.social]) {
+    assert.notEqual(preset.expiryAction, "close_tab");
+  }
 });
 
 test("expireSessions preserves active sessions and only expires past-due ones", () => {
@@ -294,8 +300,8 @@ test("expireSessions preserves active sessions and only expires past-due ones", 
 
   recordIntentCandidate(state, target, "看网课/学习视频", 10, now - 100);
   selectIntentCandidate(state, target, "看网课/学习视频", now);
-  recordIntentCandidate(state, target, "放松 10 分钟", 10, now - 50);
-  selectIntentCandidate(state, target, "放松 10 分钟", now + 100);
+  recordIntentCandidate(state, target, "放松 5 分钟", 20, now - 50);
+  selectIntentCandidate(state, target, "放松 5 分钟", now + 100);
 
   const firstExpires = state.sessions[0].expiresAt;
 

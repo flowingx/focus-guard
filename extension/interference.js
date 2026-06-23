@@ -10,6 +10,7 @@
     "看网课/学习视频",
     "找灵感",
   ];
+  const ALLOW_MINUTES = 5;
 
   chrome.runtime.sendMessage({ type: "get_ai_detect_context" }, (ctx) => {
     if (chrome.runtime.lastError || !ctx) return;
@@ -29,7 +30,7 @@
         <input class="fg-reason-input" type="text" placeholder="输入你的理由（AI 会验证是否合理）" maxlength="100" />
         <div class="fg-ai-status"></div>
         <div class="fg-btn-row">
-          <button class="fg-btn fg-btn-ghost" id="fg-close-overlay">关闭页面</button>
+          <button class="fg-btn fg-btn-ghost" id="fg-close-overlay">关闭提示</button>
           <button class="fg-btn fg-btn-primary" id="fg-submit-reason">提交理由</button>
         </div>
       </div>
@@ -79,13 +80,10 @@
           if (resp.approved) {
             chrome.runtime.sendMessage(
               {
-                type: "submit_intent",
+                type: "approve_ai_intervention",
                 target: ctx.target,
                 reason,
-                minutes: 10,
-                category: "study",
-                expiryAction: "check_in",
-                saveCandidate: false,
+                minutes: ALLOW_MINUTES,
               },
               (intentResp) => {
                 if (chrome.runtime.lastError || !intentResp?.ok) {
@@ -94,29 +92,21 @@
                   return;
                 }
 
-                status.textContent = "✅ 理由通过，放行 10 分钟";
+                status.textContent = `✅ 理由通过，放行 ${ALLOW_MINUTES} 分钟`;
                 status.className = "fg-ai-status fg-approved";
                 setTimeout(() => overlay.remove(), 2000);
               },
             );
           } else {
-            status.textContent = "❌ " + (resp.message || "理由不合理，页面将被关闭");
+            status.textContent = "❌ " + (resp.message || "理由不合理，请重新说明");
             status.className = "fg-ai-status fg-rejected";
-            setTimeout(() => {
-              chrome.runtime.sendMessage({ type: "close_current_tab" });
-            }, 3000);
           }
         },
       );
     });
 
     closeBtn.addEventListener("click", () => {
-      chrome.runtime.sendMessage({ type: "close_current_tab" }, (resp) => {
-        if (chrome.runtime.lastError || !resp?.ok) {
-          status.textContent = "关闭失败，请手动关闭此标签页";
-          status.className = "fg-ai-status fg-rejected";
-        }
-      });
+      overlay.remove();
     });
 
     input.focus();

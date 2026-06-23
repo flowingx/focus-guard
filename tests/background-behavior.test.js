@@ -11,7 +11,10 @@ async function loadBackground(initialStorage = {}, options = {}) {
   const executedScripts = [];
   const nativeMessages = [];
   const removedTabs = [];
+  const createdTabs = [];
+  const updatedTabs = [];
   const fetchCalls = [];
+  const alarmListeners = [];
   let removeShouldFail = false;
   let scriptInjectionShouldFail = false;
   const activeTabs = options.activeTabs ?? [];
@@ -41,8 +44,12 @@ async function loadBackground(initialStorage = {}, options = {}) {
         }
         return windowTabs;
       },
-      async update() {},
-      async create() {},
+      async update(tabId, properties) {
+        updatedTabs.push({ tabId, properties });
+      },
+      async create(properties) {
+        createdTabs.push(properties);
+      },
       async remove(tabId) {
         if (removeShouldFail) {
           throw new Error("tab gone");
@@ -53,7 +60,7 @@ async function loadBackground(initialStorage = {}, options = {}) {
     },
     alarms: {
       create: (name, info) => alarmCreates.push({ name, info }),
-      onAlarm: { addListener: listener },
+      onAlarm: { addListener: (callback) => alarmListeners.push(callback) },
     },
     notifications: {
       create: listener,
@@ -122,9 +129,12 @@ async function loadBackground(initialStorage = {}, options = {}) {
     alarmCreates,
     insertedCss,
     executedScripts,
+    createdTabs,
+    updatedTabs,
     fetchCalls,
     nativeMessages,
     removedTabs,
+    alarmListeners,
     failTabRemove() {
       removeShouldFail = true;
     },
@@ -209,6 +219,52 @@ test("background close_current_tab reports tab removal success and failure", asy
   );
   assert.equal(closeFailed.ok, false);
   assert.equal(closeFailed.error, "tab_close_failed");
+});
+
+test("background expired sessions open a reminder without removing or replacing the original tab", async () => {
+  const now = Date.now();
+  const harness = await loadBackground({
+    sessions: {
+      "site:gemini.google.com": {
+        reason: "那是开会的链接",
+        category: "study",
+        expiryAction: "close_tab",
+        originalUrl: "https://gemini.google.com/app",
+        tabId: 88,
+        startedAt: now - 5 * 60 * 1000,
+        expiresAt: now - 1000,
+      },
+    },
+    activityLog: [],
+  });
+
+  await harness.alarmListeners[0]({ name: "session:site:gemini.google.com" });
+
+  assert.deepEqual(harness.removedTabs, []);
+  assert.deepEqual(harness.updatedTabs, []);
+  assert.equal(harness.createdTabs.length, 1);
+  assert.match(harness.createdTabs[0].url, /expired\.html/);
+});
+
+test("background AI intervention approval creates a temporary allow without a session alarm", async () => {
+  const harness = await loadBackground({
+    aiDetectContext: { target: "site:gemini.google.com" },
+    aiInterventionAllows: {},
+    activityLog: [],
+  });
+
+  const response = await harness.context.handleMessage({
+    type: "approve_ai_intervention",
+    reason: "那是开会的链接",
+    minutes: 5,
+  }, {});
+
+  assert.equal(response.ok, true);
+  assert.equal(harness.storage.aiDetectContext, null);
+  assert.equal(harness.storage.aiInterventionAllows["site:gemini.google.com"] > Date.now(), true);
+  assert.equal(harness.storage.activityLog[0].type, "ai_intervention_approved");
+  assert.deepEqual(harness.alarmCreates, []);
+  assert.equal(harness.storage.sessions, undefined);
 });
 
 test("background exposes recent AI detect logs and can clear them", async () => {
@@ -389,6 +445,9 @@ test("background triggerAiDetect injects interference overlay for distracting re
 
   assert.equal(harness.fetchCalls[0].url, "http://127.0.0.1:3001/detect");
   assert.equal(harness.fetchCalls[0].init.method, "POST");
+  const body = JSON.parse(harness.fetchCalls[0].init.body);
+  assert.equal(body.browser_only, true);
+  assert.equal(body.browser_context.domain, "www.bilibili.com");
   assert.equal(harness.storage.aiDetectContext.tabId, 99);
   assert.equal(harness.storage.aiDetectContext.target, "site:www.bilibili.com");
   assert.equal(harness.storage.aiDetectContext.reason, "正在刷视频");
@@ -397,6 +456,28 @@ test("background triggerAiDetect injects interference overlay for distracting re
   assert.equal(harness.executedScripts[0].files[0], "interference.js");
   assert.equal(harness.executedScripts[0].target.tabId, 99);
   assert.equal(harness.storage.aiDetectLog[0].status, "interference_shown");
+});
+
+test("background triggerAiDetect skips allowlisted browser tabs", async () => {
+  const harness = await loadBackground(
+    {
+      config: { allowlistRules: ["gemini.google.com"] },
+      aiDetectLog: [],
+    },
+    {
+      activeTabs: [{ id: 103, url: "https://gemini.google.com/app", title: "Gemini" }],
+      fetch: async () => {
+        throw new Error("allowlisted tabs should not call detect");
+      },
+    },
+  );
+
+  const response = await harness.context.triggerAiDetect("test", { force: true });
+
+  assert.equal(response.status, "allowlist");
+  assert.equal(harness.fetchCalls.length, 0);
+  assert.deepEqual(harness.insertedCss, []);
+  assert.deepEqual(harness.executedScripts, []);
 });
 
 test("background triggerAiDetect logs server errors without injecting overlay", async () => {

@@ -62,10 +62,10 @@ const DEFAULT_ALLOWLIST_RULES = [
 const DEFAULT_INTENT_PRESETS = {
   video: [
     {
-      reason: "放松 10 分钟",
-      minutes: 10,
+      reason: "放松 5 分钟",
+      minutes: 5,
       category: "play",
-      expiryAction: "close_tab",
+      expiryAction: "check_in",
       source: "preset",
     },
     {
@@ -79,7 +79,7 @@ const DEFAULT_INTENT_PRESETS = {
       reason: "觉得无聊，先停一下",
       minutes: 5,
       category: "play",
-      expiryAction: "close_tab",
+      expiryAction: "check_in",
       source: "preset",
     },
   ],
@@ -92,10 +92,10 @@ const DEFAULT_INTENT_PRESETS = {
       source: "preset",
     },
     {
-      reason: "放松 10 分钟",
-      minutes: 10,
+      reason: "放松 5 分钟",
+      minutes: 5,
       category: "play",
-      expiryAction: "close_tab",
+      expiryAction: "check_in",
       source: "preset",
     },
     {
@@ -231,32 +231,23 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
   await chrome.storage.local.set({ sessions, activityLog });
 
-  if (session.expiryAction === "close_tab" && session.tabId) {
-    await safeTabRemove(session.tabId);
-  }
+  const grantedMinutes = Math.max(
+    1,
+    Math.round(((session.expiresAt ?? Date.now()) - (session.startedAt ?? Date.now())) / 60_000),
+  );
+  const checkInUrl = chrome.runtime.getURL(
+    `expired.html?target=${encodeURIComponent(target)}&reason=${encodeURIComponent(
+      session.reason,
+    )}&url=${encodeURIComponent(session.originalUrl ?? "")}`,
+  );
 
-  if (session.expiryAction === "check_in") {
-    const checkInUrl = chrome.runtime.getURL(
-      `expired.html?target=${encodeURIComponent(target)}&reason=${encodeURIComponent(
-        session.reason,
-      )}&url=${encodeURIComponent(session.originalUrl ?? "")}`,
-    );
-
-    if (session.tabId) {
-      await safeTabUpdate(session.tabId, { url: checkInUrl, active: true });
-    } else {
-      await safeTabCreate({ url: checkInUrl, active: true });
-    }
-  }
+  await safeTabCreate({ url: checkInUrl, active: true });
 
   chrome.notifications.create(`expired:${target}:${Date.now()}`, {
     type: "basic",
     iconUrl: "notification-icon.png",
     title: "Focus Guard",
-    message:
-      session.expiryAction === "check_in"
-        ? `10 分钟到了：${session.reason}。你现在还在学习吗？`
-        : `休息时间到了：${session.reason}。我会帮你关掉这个标签页。`,
+    message: `${grantedMinutes} 分钟到了：${session.reason}。你现在还需要继续吗？`,
     priority: 2,
   });
 
@@ -355,6 +346,20 @@ async function handleMessage(message, sender) {
   if (message.type === "extend_session") {
     return storeIntent(message, sender);
   }
+
+  if (message.type === "approve_ai_intervention") {
+    return storeAiInterventionAllow(message);
+  }
+
+  if (message.type === "close_expired_page") {
+    if (!sender?.tab?.id) {
+      return { ok: false, error: "tab_not_found" };
+    }
+
+    const closed = await safeTabRemove(sender.tab.id);
+    return closed ? { ok: true } : { ok: false, error: "tab_close_failed" };
+  }
+
   if (message.type === "close_current_tab") {
     if (!sender?.tab?.id) {
       return { ok: false, error: "tab_not_found" };
@@ -549,7 +554,7 @@ async function storeIntent(message, sender) {
     return { ok: false, error: "minutes_must_be_positive" };
   }
   const category = message.category ?? "study";
-  const expiryAction = message.expiryAction ?? expiryActionForCategory(category);
+  const expiryAction = normalizeExpiryAction(message.expiryAction ?? expiryActionForCategory(category));
 
   if (message.saveCandidate) {
     const targetCandidates = candidates[target] ?? [];
@@ -645,6 +650,32 @@ function isAllowlistedSite(host, rules) {
   return rules.some((rule) => matchesHostRule(host, rule));
 }
 
+async function storeAiInterventionAllow(message) {
+  const { aiInterventionAllows = {}, aiDetectContext = null, activityLog = [] } =
+    await chrome.storage.local.get(["aiInterventionAllows", "aiDetectContext", "activityLog"]);
+  const now = Date.now();
+  const target = String(message.target || aiDetectContext?.target || "").trim();
+  const reason = String(message.reason || "").trim();
+  const minutes = validMinutes(message.minutes, 5);
+  if (!target || !reason) return { ok: false };
+
+  aiInterventionAllows[target] = now + minutes * 60 * 1000;
+  activityLog.push({
+    timestamp: now,
+    type: "ai_intervention_approved",
+    target,
+    reason,
+    grantedMinutes: minutes,
+  });
+
+  await chrome.storage.local.set({
+    aiInterventionAllows,
+    aiDetectContext: null,
+    activityLog,
+  });
+  return { ok: true };
+}
+
 function normalizeHost(url) {
   return new URL(url).hostname.toLowerCase().replace(/^www\./, "");
 }
@@ -678,7 +709,11 @@ function presetGroupForTarget(target) {
 }
 
 function expiryActionForCategory(category) {
-  return category === "play" ? "close_tab" : "check_in";
+  return "check_in";
+}
+
+function normalizeExpiryAction(action) {
+  return "check_in";
 }
 
 function unique(values) {
@@ -826,10 +861,32 @@ async function triggerAiDetect(source, options = {}) {
       return { status: "no_http_tab" };
     }
 
+    const target = `site:${new URL(tab.url).hostname}`;
+    const { config = {} } = await chrome.storage.local.get("config");
+    if (isAllowlistedSite(new URL(tab.url).hostname, configWithDefaults(config).allowlistRules)) {
+      return { status: "allowlist" };
+    }
+
+    const { aiInterventionAllows = {} } = await chrome.storage.local.get("aiInterventionAllows");
+    if (aiInterventionAllows[target] > now) {
+      return { status: "temporary_allow" };
+    }
+    if (aiInterventionAllows[target]) {
+      delete aiInterventionAllows[target];
+      await chrome.storage.local.set({ aiInterventionAllows });
+    }
+
     const response = await fetch(AI_DETECT_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({
+        source,
+        browser_only: true,
+        browser_context: {
+          domain: new URL(tab.url).hostname,
+          title: tab.title || "",
+        },
+      }),
       signal: AbortSignal.timeout(90_000),
     });
 
@@ -861,7 +918,7 @@ async function triggerAiDetect(source, options = {}) {
       await chrome.storage.local.set({
         aiDetectContext: {
           tabId: tab.id,
-          target: `site:${new URL(tab.url).hostname}`,
+          target,
           reason: result.reason,
           category: result.category,
           confidence: result.confidence,
